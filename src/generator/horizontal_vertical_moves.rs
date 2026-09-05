@@ -1,11 +1,13 @@
 use crate::structures::annotations::{Piece, PieceColor};
-pub fn horizontal_vertical_moves(bitboards:[[u64;7];2],rank:usize,file:usize)->u64
+pub fn horizontal_vertical_moves(bitboards:[[u64;7];2],mut position:u64)->u64
 {
     let mut horizontal_vertical_attackings: u64 = 0;
-    let position:u64=1<<((rank*8) as u64 +file as u64);
     // now will be calculating for the horizontal and vertical attacking positions
     {
-        
+        let square = position.trailing_zeros() as u64;
+        let rank = square / 8;
+        let file = square % 8;
+
         let mut all_side = bitboards[PieceColor::W as usize][Piece::A as usize]|bitboards[PieceColor::B as usize][Piece::A as usize];
         all_side=all_side^position;
         let mut step = 1;

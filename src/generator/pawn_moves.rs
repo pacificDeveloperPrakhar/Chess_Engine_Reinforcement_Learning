@@ -1,7 +1,6 @@
 use crate::structures::annotations::{Piece, PieceColor};
 
-pub fn pawn_moves(bitboards: [[u64; 7]; 2], rank: usize, file: usize) -> u64 {
-    let position = 1 << ((rank * 8) as u64 + file as u64);
+pub fn pawn_moves(bitboards: [[u64; 7]; 2], mut position:u64) -> u64 {
     let white_pieces = bitboards[PieceColor::W as usize][Piece::A as usize];
     let black_pieces = bitboards[PieceColor::B as usize][Piece::A as usize];
 
@@ -10,6 +9,10 @@ pub fn pawn_moves(bitboards: [[u64; 7]; 2], rank: usize, file: usize) -> u64 {
 
     let mut pawn_moves: u64 = 0;
     let all_pieces = white_pieces | black_pieces;
+
+    let square = position.trailing_zeros() as u64;
+    let rank = square / 8;
+    let file = square % 8;
 
     if (white_pieces & position & white_start) != 0 {
         let mut step = 1;

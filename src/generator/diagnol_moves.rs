@@ -1,11 +1,14 @@
 use crate::structures::annotations::{Piece, PieceColor};
 
-pub fn diagnol_moves(bitboards: [[u64; 7]; 2], rank: usize, file: usize) -> u64 {
+pub fn diagnol_moves(bitboards: [[u64; 7]; 2], mut position:u64) -> u64 {
     let mut all_piece = bitboards[PieceColor::W as usize][Piece::A as usize]
         | bitboards[PieceColor::B as usize][Piece::A as usize];
-    let position: u64 = 1 << ((rank * 8) as u64 + file as u64);
     let mut diagnol_attackings: u64 = 0;
     all_piece ^= position;
+
+    let square = position.trailing_zeros() as u64;
+    let rank = square / 8;
+    let file = square % 8;
 
     // upper right
     let mut step_row = 1;

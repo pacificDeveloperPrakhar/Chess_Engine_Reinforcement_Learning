@@ -103,3 +103,11 @@ impl From<char> for PieceColor
     }
 }
 
+pub enum AttackType
+{
+    diagnol,
+    horizontal_vertical=1,
+    pawn,
+    square,
+    l_shape
+}

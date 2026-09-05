@@ -1,8 +1,12 @@
 use crate::structures::annotations::{Piece, PieceColor};
-pub fn one_square_move(bitboards:[[u64;7];2],rank:usize,file:usize)->u64
+pub fn one_square_move(bitboards:[[u64;7];2],mut position:u64)->u64
 {
-    let position =1 <<((rank*8) as u64 + file as u64);
     let mut  result:u64=0;
+
+    let square = position.trailing_zeros() as u64;
+    let rank = square / 8;
+    let file = square % 8;
+
     if (rank+1)<8
     {
         result|=(position <<1*8 );

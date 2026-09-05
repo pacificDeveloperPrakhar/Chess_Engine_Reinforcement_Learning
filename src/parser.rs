@@ -1,3 +1,4 @@
+use crate::structures::annotations::*;
 pub fn bitboards_to_modified_epd(bitboards:[[u64;7];2])->Vec<char>
 {
   let mut result=String::from("0000000000000000000000000000000000000000000000000000000000000000");
@@ -30,5 +31,5 @@ pub fn bitboards_to_modified_epd(bitboards:[[u64;7];2])->Vec<char>
 
 pub fn bitboards_to_fen(bitboards:[[u64;7];2])->String
 {
-	
+  return String::from("hello");
 }
