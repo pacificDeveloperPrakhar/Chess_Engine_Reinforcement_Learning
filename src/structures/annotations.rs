@@ -102,7 +102,7 @@ impl From<char> for PieceColor
         }
     }
 }
-
+#[derive(Debug,Clone,Copy)]
 pub enum AttackType
 {
     diagnol,

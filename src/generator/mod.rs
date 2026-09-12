@@ -47,7 +47,7 @@ pub fn possible_moves(bitboards: [[u64; 7]; 2], position_selected:u64) -> u64 {
     return ans;
 }
 //check if the king is checked or not for specific side
-pub fn is_king_checked(bitboards: [[u64; 7]; 2], side: char) -> (u64,AttackType) {
+pub fn is_king_checked(bitboards: [[u64; 7]; 2], side: char) -> (u64,Vec<AttackType>) {
     let position_selected =
     bitboards[PieceColor::from(side) as usize][Piece::K as usize];
 
@@ -72,36 +72,68 @@ pub fn is_king_checked(bitboards: [[u64; 7]; 2], side: char) -> (u64,AttackType)
     //king attacking
     let king_attackings=one_square_move(bitboards,position_selected)&all_enemies& bitboards[enemy_side as usize][Piece::K as usize];
     let mut result=0;
-    let mut attack_type=AttackType::pawn;
+    let mut attack_type=Vec::new();
     if pawn_attackings &bitboards[enemy_side][Piece::P as usize]!=0
     {
         result|=(pawn_attackings &bitboards[enemy_side][Piece::P as usize]);
-        attack_type=AttackType::pawn ;
+        attack_type.push(AttackType::pawn);
     }
     if horizontal_vertical_attackings &(bitboards[enemy_side][Piece::Q as usize]|bitboards[enemy_side][Piece::R as usize]) !=0
     {
         result|=(horizontal_vertical_attackings &(bitboards[enemy_side][Piece::Q as usize]|bitboards[enemy_side][Piece::R as usize]));
-        attack_type=AttackType::horizontal_vertical ;
+        attack_type.push(AttackType::horizontal_vertical);
     }
 
     if l_shape_attackings&(bitboards[enemy_side][Piece::N as usize])!=0
     {
         result|=(l_shape_attackings&(bitboards[enemy_side][Piece::N as usize]));
-        attack_type=AttackType::l_shape ;
+        attack_type.push(AttackType::l_shape);
     }
     if diagnol_attackings&(bitboards[enemy_side][Piece::Q as usize]|bitboards[enemy_side][Piece::B as usize]) !=0
     {
         result|=(diagnol_attackings&(bitboards[enemy_side][Piece::Q as usize]|bitboards[enemy_side][Piece::B as usize]));
-        attack_type=AttackType::diagnol ;
+        attack_type.push(AttackType::diagnol);
     }
     if king_attackings!=0
     {
         result|=king_attackings;
-        attack_type=AttackType::square ;
+        attack_type.push(AttackType::square);
     }
     return (result,attack_type);
 }
 
+pub fn generate_moves_for_king(mut bitboards: [[u64; 7]; 2], selected_position:u64) -> u64 {
+    let mut king_position=0 as u64;
+    let mut role=0;
+    // get the position and the role of the king from the bitboard
+    if bitboards[PieceColor::W as usize][Piece::K as usize] & selected_position != 0 {
+        king_position=bitboards[PieceColor::W as usize][Piece::K as usize];
+        role=0;
+    } else if bitboards[PieceColor::B as usize][Piece::K as usize] & selected_position != 0 {
+        king_position=bitboards[PieceColor::B as usize][Piece::K as usize];
+        role=1;
+    }
+
+    if king_position==0
+    {
+        return 0;
+    }
+    let mut possible_moves_king=one_square_move(bitboards,king_position);
+    
+    for i in 0..6
+    {
+        let enemy_color=1-role;
+        let  mut pieces=bitboards[enemy_color][i as usize];
+        while pieces!=0
+        {
+            let piece_position=1<<pieces.trailing_zeros();
+            let possible_moves=possible_moves(bitboards,piece_position);
+            pieces&=pieces-1;
+            possible_moves_king ^= possible_moves_king&possible_moves;
+        }
+    }
+    return possible_moves_king;
+}
 pub fn generating_moves_with_king_safety(mut bitboards: [[u64; 7]; 2], selected_position:u64) -> u64 {
     let color= if bitboards[PieceColor::W as usize][Piece::A as usize] & selected_position != 0 {
         PieceColor::W
@@ -111,43 +143,64 @@ pub fn generating_moves_with_king_safety(mut bitboards: [[u64; 7]; 2], selected_
     let possible_moves_in_free_condition=possible_moves(bitboards,selected_position);
     let mut valid_moves=0;
     // remove the selected position from the bitboard to check for king safety
-    bitboards[PieceColor::from(color) as usize][Piece::A as usize] ^= selected_position;
+    for i in 0..7
+    {
+        bitboards[PieceColor::from(color) as usize][i as usize] &= !selected_position;
+    }
     // check the possible moves and see if the king is checked or not
-    let (checked_positions, attack_type) = is_king_checked(
+    let (all_checked_positions, attack_types) = is_king_checked(
     bitboards,
     match color {
         PieceColor::W => 'w',
         PieceColor::B => 'B',
-    },
+    }
     );
+
+    if attack_types.len() > 1 {
+        return 0;
+    }
     // also take the king position on the bitboard
     let king_position=bitboards[PieceColor::from(color) as usize][Piece::K as usize];
-    if checked_positions == 0 {
+    if all_checked_positions == 0 {
         return possible_moves_in_free_condition;
     }
+    let mut moves_checked_positions=0;
+    let mut checked_positions=all_checked_positions;
+    //iterate through each checked bit and then proces it
+    for i in 0..attack_types.len()
+    {
+    let attack_type=attack_types[i];
     let enemy_color=1-(color as usize);
-    let moves_checked_positions =match attack_type
+    moves_checked_positions |=match attack_type
     {
         AttackType::diagnol =>
         {
-            diagnol_moves(bitboards,checked_positions)&diagnol_moves(bitboards,king_position)
+            diagnol_moves(bitboards,1<<checked_positions.trailing_zeros())&diagnol_moves(bitboards,king_position)
         },
         AttackType::horizontal_vertical =>
         {
-            horizontal_vertical_moves(bitboards,checked_positions)&horizontal_vertical_moves(bitboards,king_position)
+            horizontal_vertical_moves(bitboards,1<<checked_positions.trailing_zeros())&horizontal_vertical_moves(bitboards,king_position)
         },
         AttackType::l_shape =>
         {   
-            l_squares(bitboards,checked_positions)&l_squares(bitboards,king_position)
+            l_squares(bitboards,1<<checked_positions.trailing_zeros())&l_squares(bitboards,king_position)
         },
         AttackType::pawn =>
         {   
-            pawn_moves(bitboards,checked_positions)&pawn_moves(bitboards,king_position)
+            pawn_moves(bitboards,1<<checked_positions.trailing_zeros())&pawn_moves(bitboards,king_position)
         },
         _ =>
         {
-            one_square_move(bitboards,checked_positions)&one_square_move(bitboards,king_position)
+            one_square_move(bitboards,1<<checked_positions.trailing_zeros())&one_square_move(bitboards,king_position)
         }
     };
-    return moves_checked_positions&possible_moves_in_free_condition;
+    checked_positions&= checked_positions-(1<<checked_positions.trailing_zeros());
+    }
+    if (king_position&selected_position)!=0
+    {
+        return possible_moves_in_free_condition^(moves_checked_positions&possible_moves_in_free_condition)
+    }
+
+    return moves_checked_positions&possible_moves_in_free_condition
+    
 }
