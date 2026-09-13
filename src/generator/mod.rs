@@ -102,38 +102,75 @@ pub fn is_king_checked(bitboards: [[u64; 7]; 2], side: char) -> (u64,Vec<AttackT
     return (result,attack_type);
 }
 
-pub fn generate_moves_for_king(mut bitboards: [[u64; 7]; 2], selected_position:u64) -> u64 {
-    let mut king_position=0 as u64;
-    let mut role=0;
-    // get the position and the role of the king from the bitboard
+pub fn generate_moves_for_king(mut bitboards: [[u64; 7]; 2], selected_position: u64) -> u64 {
+    let mut king_position = 0u64;
+    let mut role = 0usize;
+
     if bitboards[PieceColor::W as usize][Piece::K as usize] & selected_position != 0 {
-        king_position=bitboards[PieceColor::W as usize][Piece::K as usize];
-        role=0;
+        king_position = bitboards[PieceColor::W as usize][Piece::K as usize];
+        role = 0;
     } else if bitboards[PieceColor::B as usize][Piece::K as usize] & selected_position != 0 {
-        king_position=bitboards[PieceColor::B as usize][Piece::K as usize];
-        role=1;
+        king_position = bitboards[PieceColor::B as usize][Piece::K as usize];
+        role = 1;
     }
 
-    if king_position==0
-    {
+    if king_position == 0 {
         return 0;
     }
-    let mut possible_moves_king=one_square_move(bitboards,king_position);
-    
-    for i in 0..6
+
+    let possible_moves_king = one_square_move(bitboards, king_position);
+    if possible_moves_king == 0 {
+        return 0;
+    }
+
+    // Remove the king from the board ONCE, for every attack computation below.
+    bitboards[role][Piece::K as usize] &= !king_position;
+    bitboards[role][Piece::A as usize] &= !king_position;
+
+    let enemy_color = 1 - role;
+    let mut attacked = 0u64;
+
+    // Pawns: raw diagonal attack squares only (not the forward push,
+    // and NOT conditional on whether something currently sits there).
     {
-        let enemy_color=1-role;
-        let  mut pieces=bitboards[enemy_color][i as usize];
-        while pieces!=0
-        {
-            let piece_position=1<<pieces.trailing_zeros();
-            let possible_moves=possible_moves(bitboards,piece_position);
-            pieces&=pieces-1;
-            possible_moves_king ^= possible_moves_king&possible_moves;
+        let mut pieces = bitboards[enemy_color][Piece::P as usize];
+        while pieces != 0 {
+            let piece_position = 1u64 << pieces.trailing_zeros();
+            if role == 0 {
+                attacked |= (piece_position >> 7); // white pawns attack down-left
+                attacked |= (piece_position >> 9); // white pawns attack down-right
+            } else {
+                attacked |= (piece_position << 7) ; // black pawns attack up-right
+                attacked |= (piece_position << 9);  // black pawns attack up-left
+            }
+            pieces &= pieces - 1;
         }
     }
-    return possible_moves_king;
+
+    // Knights, bishops, rooks, queens, king attacking patterns
+    for i in 1..6 {
+        let mut pieces = bitboards[enemy_color][i as usize];
+        while pieces != 0 {
+            let piece_position = 1u64 << pieces.trailing_zeros();
+            let piece_attacks = match i {
+                x if x == Piece::N as usize => l_squares(bitboards, piece_position),
+                x if x == Piece::B as usize => diagnol_moves(bitboards, piece_position),
+                x if x == Piece::R as usize => horizontal_vertical_moves(bitboards, piece_position),
+                x if x == Piece::Q as usize => {
+                    diagnol_moves(bitboards, piece_position)
+                        | horizontal_vertical_moves(bitboards, piece_position)
+                }
+                x if x == Piece::K as usize => one_square_move(bitboards, piece_position),
+                _ => 0,
+            };
+            attacked |= piece_attacks;
+            pieces &= pieces - 1;
+        }
+    }
+
+    possible_moves_king & !attacked
 }
+// this function will be used for the non king positions 
 pub fn generating_moves_with_king_safety(mut bitboards: [[u64; 7]; 2], selected_position:u64) -> u64 {
     let color= if bitboards[PieceColor::W as usize][Piece::A as usize] & selected_position != 0 {
         PieceColor::W
