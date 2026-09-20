@@ -1,6 +1,6 @@
 pub mod state;
 pub mod annotations;
-
+use crate::structures::annotations::{Piece, PieceColor};
 pub fn get_pgn_notation_from_bitboards(bitboards: [[u64; 7]; 2]) -> String {
     // Step 1: build a flat 64-square board, no slashes yet.
     let mut board = ['\0'; 64];
