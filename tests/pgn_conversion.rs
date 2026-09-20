@@ -58,7 +58,7 @@ fn encode_mixed_rank() {
     let mut bitboards = empty_bitboards();
     bitboards[PieceColor::W as usize][Piece::R as usize] = 1u64 << 24;
     bitboards[PieceColor::B as usize][Piece::B as usize] = 1u64 << 27;
-    bitboards[PieceColor::W as usize][Piece::Q as usize] = 1u64 << 31;
+    bitboards[PieceColor::W as usize][Piece::Q as usize] = 1u64 << 30;
     let result = get_pgn_notation_from_bitboards(bitboards);
     assert_eq!(result, "8/8/8/8/R2b2Q1/8/8/8");
 }
