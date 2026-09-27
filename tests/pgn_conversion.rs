@@ -1,11 +1,16 @@
 use chess_engine::structures::annotations::{Piece, PieceColor};
-use chess_engine::structures::{get_pgn_notation_from_bitboards, pgn_notation_to_bitboards};
-
+use chess_engine::structures::{get_pgn_notation_from_bitboards, pgn_notation_to_bitboards, get_legal_possible_moves_notation_for_rendering};
+use chess_engine::generator::possible_moves;
+use chess_engine::generator::is_king_checked;
 // Helper: build an empty board
 fn empty_bitboards() -> [[u64; 7]; 2] {
     [[0; 7]; 2]
 }
-
+// placing square on the board
+fn place(bitboards: &mut [[u64; 7]; 2], color: PieceColor, piece: Piece, square: u32) {
+    bitboards[color as usize][piece as usize] |= 1u64 << square;
+    bitboards[color as usize][Piece::A as usize] |= 1u64 << square;
+}
 // ---------- ENCODE TESTS (bitboards -> FEN string) ----------
 
 #[test]
@@ -125,4 +130,59 @@ fn round_trip_empty_board() {
     let bitboards = pgn_notation_to_bitboards(fen);
     let result = get_pgn_notation_from_bitboards(bitboards);
     assert_eq!(result, fen);
+}
+
+// ---------- RENDERING TESTS (get_legal_possible_moves_notation_for_rendering) ----------
+
+#[test]
+fn render_king_quiet_moves_only() {
+    // White king alone on e1 (square 4). Moves: d1 (3) and f1 (5), both empty
+    // destinations -> both should render as '+'.
+    let mut bitboards = empty_bitboards();
+    let king_sq = 4u32;
+    place(&mut bitboards, PieceColor::W, Piece::K, king_sq);
+
+    let all_moves = (1u64 << 3) | (1u64 << 5);
+    let result = get_legal_possible_moves_notation_for_rendering(
+        bitboards,
+        all_moves,
+        1u64 << king_sq,
+    );
+
+    assert_eq!(result, "8/8/8/8/8/8/8/3+K+2");
+}
+
+#[test]
+fn render_rook_quiet_moves_and_capture() {
+    // White rook on a1 (square 0), black knight on a4 (square 24) blocking the
+    // file. Moves: a2 (8) and a3 (16) are quiet ('+'), a4 (24) is a capture ('-').
+    let mut bitboards = empty_bitboards();
+    let rook_sq = 0u32;
+    let knight_sq = 24u32;
+    place(&mut bitboards, PieceColor::W, Piece::R, rook_sq);
+    place(&mut bitboards, PieceColor::B, Piece::N, knight_sq);
+
+    let all_moves = (1u64 << 8) | (1u64 << 16) | (1u64 << 24);
+    let result = get_legal_possible_moves_notation_for_rendering(
+        bitboards,
+        all_moves,
+        1u64 << rook_sq,
+    );
+
+    assert_eq!(result, "8/8/8/8/-7/+7/+7/R7");
+}
+
+#[test]
+fn render_no_moves_available_board_unchanged() {
+    // White king on e1, no legal moves passed in (all_moves = 0): board should
+    // render exactly like the plain encoder, no '+'/'-' anywhere.
+    let mut bitboards = empty_bitboards();
+    let king_sq = 4u32;
+    place(&mut bitboards, PieceColor::W, Piece::K, king_sq);
+
+    let result =
+        get_legal_possible_moves_notation_for_rendering(bitboards, 0u64, 1u64 << king_sq);
+
+    assert_eq!(result, get_pgn_notation_from_bitboards(bitboards));
+    assert_eq!(result, "8/8/8/8/8/8/8/4K3");
 }
