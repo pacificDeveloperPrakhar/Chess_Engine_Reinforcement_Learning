@@ -1,4 +1,4 @@
-use super::evaluate_score; // adjust the path to match your module layout
+use crate::evaluator::evaluate_score; // adjust the path to match your module layout
 use crate::generator::{generating_moves_with_king_safety, generate_moves_for_king};
 use crate::structures::annotations::Piece;
 
@@ -91,7 +91,6 @@ impl Node_Min_Max
 						new_bitboards[enemy][j] &= !next_move;
 					}
 
-					// TODO: promotion, castling (move the rook) and en passant are not handled.
 
 					let mut child = Node_Min_Max::new_state_for(new_bitboards, enemy as u8);
 					child.value = 0.0;

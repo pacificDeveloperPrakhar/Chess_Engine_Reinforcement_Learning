@@ -45,7 +45,7 @@ pub enum Piece
 
     }
     // enum corresponding to the color of the pieces
-#[derive(Debug,Clone,Copy)]
+#[derive(Debug,Clone,Copy,PartialEq,Eq)]
 #[repr(usize)]
 pub enum PieceColor
 {

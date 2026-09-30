@@ -1,25 +1,35 @@
 pub mod PSQT;
 pub mod MIN_MAX;
 
-pub fn evaluate_material_score(bitboards: [[u64; 7]; 2]) -> i32 {
-    let mut score: i32 = 0;
+
+pub fn evaluate_material_score(bitboards: [[u64; 7]; 2]) -> i16 {
+    let mut score: i16 = 0;
     for color in 0..2 {
         for piece in 0..6 {
-            let count = bitboards[color][piece].count_ones() as i32;
-            let value = PSQT::PIECE_VALUES[piece] as i32;
-            score += if color == 0 { count * value } else { -count * value };
+            let piece_count = bitboards[color][piece].count_ones() as i16;
+            let value = piece_count * PSQT::PIECE_VALUES[piece];
+            score += if color == 0 { value } else { -value };
         }
     }
     score
 }
 
-// TODO: define what "sparse" should measure. The old version always returned 0.
-pub fn how_sparse(_bitboards: [[u64; 7]; 2]) -> i32 {
-    0
+pub fn how_sparse(bitboards: [[u64; 7]; 2]) -> i16 {
+    let mut score: i16 = 0;
+    for color in 0..2 {
+        for piece in 0..6 {
+            let mut bytes = bitboards[color][piece].to_be_bytes();
+            for i in 0..8 {
+                bytes[i] = !bytes[i];
+            }
+            let flipped = u64::from_be_bytes(bytes);
+            score += (flipped & bitboards[color][piece]).count_ones() as i16;
+        }
+    }
+    score
 }
 
-// Phase is based on the total number of pieces left on the board (both sides).
-// Assumes PSQT::PSQT[0] = opening, [1] = middlegame, [2] = endgame. Tune the thresholds.
+// Phase from total piece count: 0 = opening, 1 = middlegame, 2 = endgame.
 pub fn game_progress(bitboards: [[u64; 7]; 2]) -> usize {
     let mut pieces: u32 = 0;
     for color in 0..2 {
@@ -37,20 +47,21 @@ pub fn game_progress(bitboards: [[u64; 7]; 2]) -> usize {
 }
 
 pub fn evaluate_psqt_score(bitboards: [[u64; 7]; 2]) -> f64 {
-    let progress = game_progress(bitboards);
+    // PSQT has two phases per piece: [0] = middlegame, [1] = endgame.
+    let phase = if game_progress(bitboards) == 2 { 1 } else { 0 };
     let mut score: i32 = 0;
 
-    for i in 0..2 {
-        for j in 0..6 {
-            let mut piece = bitboards[i][j];
-            while piece != 0 {
-                let sq = piece.trailing_zeros() as usize;
-                piece &= piece - 1;
+    for color in 0..2 {
+        for piece_idx in 0..6 {
+            let mut bb = bitboards[color][piece_idx];
+            while bb != 0 {
+                let sq = bb.trailing_zeros() as usize;
+                bb &= bb - 1;
 
-                if i == 0 {
-                    score += PSQT::PSQT[progress][j][sq] as i32;
+                if color == 0 {
+                    score += PSQT::PSQT[piece_idx][phase][sq ^ 56] as i32;
                 } else {
-                    score -= PSQT::PSQT[progress][j][sq ^ 56] as i32;
+                    score -= PSQT::PSQT[piece_idx][phase][sq] as i32;
                 }
             }
         }
@@ -60,7 +71,5 @@ pub fn evaluate_psqt_score(bitboards: [[u64; 7]; 2]) -> f64 {
 }
 
 pub fn evaluate_score(bitboards: [[u64; 7]; 2]) -> f64 {
-    let mut score = evaluate_material_score(bitboards) as f64;
-    score += evaluate_psqt_score(bitboards);
-    score
+    evaluate_material_score(bitboards) as f64 + evaluate_psqt_score(bitboards)
 }
