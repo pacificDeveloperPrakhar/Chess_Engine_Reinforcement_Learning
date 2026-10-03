@@ -1,17 +1,24 @@
 use crate::evaluator::evaluate_score; // adjust the path to match your module layout
 use crate::generator::{generating_moves_with_king_safety, generate_moves_for_king};
 use crate::structures::annotations::Piece;
+use crate::evaluator::evaluate_score; // adjust the path to match your module layout
+use crate::generator::{generating_moves_with_king_safety, generate_moves_for_king};
+use crate::structures::annotations::Piece;
 
-pub struct Node_Min_Max
+pub struct Node_Min_Max<'min_max_calculation, 'next_node_lifetime>
 {
 	pub bitboards: [[u64; 7]; 2],
-	pub children: Vec<Node_Min_Max>,
+	pub children: Vec<Node_Min_Max<'min_max_calculation, 'next_node_lifetime>>,
 	pub value: f64,
 	pub role: u8,        // side that just moved; side to move is 1 - role
 	pub expanded: bool,  // true once calculate_children has run (even if it found no moves)
+	// outer reference lives for 'min_max_calculation,
+	// the node it points to has its own borrows valid for 'next_node_lifetime
+	pub next_best_move: Option<&'min_max_calculation Node_Min_Max<'next_node_lifetime, 'next_node_lifetime>>,
 }
 
-impl Node_Min_Max
+// FIX 1: declare both lifetimes and apply both to the type
+impl<'min_max_calculation, 'next_node_lifetime> Node_Min_Max<'min_max_calculation, 'next_node_lifetime>
 {
 	pub fn expand(&mut self, depth: usize)
 	{
@@ -29,16 +36,15 @@ impl Node_Min_Max
 		}
 	}
 
-	// Unchanged behavior: role = 0, so the root's children are side 1's moves.
-	pub fn new_state(bitboards: [[u64; 7]; 2]) -> Node_Min_Max
+	pub fn new_state(bitboards: [[u64; 7]; 2]) -> Self
 	{
-		Node_Min_Max { bitboards, children: Vec::new(), value: 0.0, role: 0, expanded: false }
+		Node_Min_Max { bitboards, children: Vec::new(), value: 0.0, role: 0, expanded: false, next_best_move: None }
 	}
 
 	// Explicit version: side_to_move 0 = white, 1 = black.
-	pub fn new_state_for(bitboards: [[u64; 7]; 2], side_to_move: u8) -> Node_Min_Max
+	pub fn new_state_for(bitboards: [[u64; 7]; 2], side_to_move: u8) -> Self
 	{
-		Node_Min_Max { bitboards, children: Vec::new(), value: 0.0, role: 1 - side_to_move, expanded: false }
+		Node_Min_Max { bitboards, children: Vec::new(), value: 0.0, role: 1 - side_to_move, expanded: false, next_best_move: None }
 	}
 
 	pub fn evaluate(&self) -> f64
@@ -51,7 +57,7 @@ impl Node_Min_Max
 		self.children = Vec::new();
 		self.expanded = true;
 
-		let player = (1 - self.role) as usize;
+		let player = self.role as usize;
 		let enemy = 1 - player;
 
 		for i in 0..6 // exclude Piece::A (index 6), the aggregate occupancy board
@@ -91,8 +97,8 @@ impl Node_Min_Max
 						new_bitboards[enemy][j] &= !next_move;
 					}
 
-
-					let mut child = Node_Min_Max::new_state_for(new_bitboards, enemy as u8);
+					// FIX 3: Self:: so the child has the same lifetimes as its parent
+					let mut child = Self::new_state_for(new_bitboards, enemy as u8);
 					child.value = 0.0;
 					self.children.push(child);
 				}

@@ -32,11 +32,13 @@ pub fn min_max(mut alpha: f64, mut beta: f64, role: i8, curr: &mut Node_Min_Max,
 		{
 			best = best.max(v);
 			alpha = alpha.max(best);
+			curr.next_best_move = Option::Some(&child);
 		}
 		else
 		{
 			best = best.min(v);
 			beta = beta.min(best);
+			curr.next_best_move = Option::Some(&child);
 		}
 		if beta <= alpha
 		{
