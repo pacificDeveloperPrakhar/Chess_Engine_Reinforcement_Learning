@@ -82,6 +82,16 @@ impl GameSession
 	}
 
 	const FILE_A: u64 = 0x0101_0101_0101_0101;
+	// this will expan to
+	[
+		0 0 0 0 0 0 0 1,
+		0 0 0 0 0 0 0 1,
+		0 0 0 0 0 0 0 1,
+		0 0 0 0 0 0 0 1,
+		0 0 0 0 0 0 0 1,
+		0 0 0 0 0 0 0 1,
+		0 0 0 0 0 0 0 1, 
+	]
 const FILE_H: u64 = 0x8080_8080_8080_8080;
 
 pub fn en_passant_select_mode(&mut self, select: u64) -> u64 {
