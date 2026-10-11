@@ -1,9 +1,7 @@
 use crate::evaluator::evaluate_score; // adjust the path to match your module layout
 use crate::generator::{generating_moves_with_king_safety, generate_moves_for_king};
 use crate::structures::annotations::Piece;
-use crate::evaluator::evaluate_score; // adjust the path to match your module layout
-use crate::generator::{generating_moves_with_king_safety, generate_moves_for_king};
-use crate::structures::annotations::Piece;
+
 
 pub struct Node_Min_Max<'min_max_calculation, 'next_node_lifetime>
 {

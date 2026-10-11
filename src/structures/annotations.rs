@@ -1,76 +1,74 @@
+#![allow(non_camel_case_types)]
 
 use std::convert::From;
 
-#[derive(Debug,Clone,Copy)]
+/// Material values (centipawn-style). Rust enums cannot repeat a discriminant,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
-pub enum PieceValue
-{
-    P=1,
-    N=5,
-    B=6,
-    R=4,
-    Q=16,
-    K=255
+pub enum PieceValue {
+    P = 100,
+    N = 320,
+    B = 330,
+    R = 500,
+    Q = 900,
+    K = 20000,
 }
-impl From<usize> for PieceValue
-{
-   fn from(c:usize)->Self
-    {
-        match c
-        {
-             0=>PieceValue::P,
-             1=>PieceValue::N,
-             2=>PieceValue::B,
-             3=>PieceValue::R,
-             4=>PieceValue::K,
-             5=>PieceValue::Q,
-            _=> PieceValue::P
+
+impl From<usize> for PieceValue {
+    fn from(c: usize) -> Self {
+        match c {
+            0 => PieceValue::P,
+            1 => PieceValue::N,
+            2 => PieceValue::B,
+            3 => PieceValue::R,
+            4 => PieceValue::K,
+            5 => PieceValue::Q,
+            _ => PieceValue::P,
         }
     }
 }
 
-
-// this denote the piece type and the color of the piece, for example white knight or black queen etc
-#[derive(Debug,Clone,Copy)]
+// second index in the bitboard
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(usize)]
-pub enum Piece
-{
-     P=0, //pawns
-     N=1,//knight
-     B=2,//bishop
-     R=3,//rook
-     K=4,//king
-     Q=5,//queen
-     A=6,//all the pieces of one color,for example all the white pieces or all the black pieces
-
-    }
-    // enum corresponding to the color of the pieces
-#[derive(Debug,Clone,Copy,PartialEq,Eq)]
-#[repr(usize)]
-pub enum PieceColor
-{
-    W=0,
-    B=1
+pub enum Piece {
+    P = 0, // pawns
+    N = 1, // knights
+    B = 2, // bishops
+    R = 3, // rooks
+    K = 4, // king
+    Q = 5, // queen
+    A = 6, // all pieces of one colour
 }
-// implementing the From trait for the piece enum which has a function called from takes an input of one data type and then return
-// the data type for what we have specified for 
-impl From<char> for Piece{
-    fn from(c:char)->Self
-    {
-     match c{
-        'Q'|'q'=>Piece::Q, 
-        'K'|'k'=>Piece::K,
-        'B'|'b'=>Piece::B,
-        'R'|'r'=>Piece::R,
-        'P'|'p'=>Piece::P,
-        'N'|'n'=>Piece::N,
-        _=> Piece::A
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(usize)]
+pub enum PieceColor {
+    W = 0,
+    B = 1,
+}
+
+impl From<char> for Piece {
+    fn from(c: char) -> Self {
+        Piece::from_char_opt(c).unwrap_or(Piece::A)
     }
 }
-} 
 
 impl Piece {
-    pub fn as_char(piece:usize, side: usize) -> char {
+    pub fn from_char_opt(c: char) -> Option<Piece> {
+        match c {
+            'Q' | 'q' => Some(Piece::Q),
+            'K' | 'k' => Some(Piece::K),
+            'B' | 'b' => Some(Piece::B),
+            'R' | 'r' => Some(Piece::R),
+            'P' | 'p' => Some(Piece::P),
+            'N' | 'n' => Some(Piece::N),
+            _ => None,
+        }
+    }
+
+
+    pub fn as_char(piece: usize, side: usize) -> char {
         let c = match piece {
             0 => 'p',
             1 => 'n',
@@ -78,36 +76,42 @@ impl Piece {
             3 => 'r',
             4 => 'k',
             5 => 'q',
-            _=>'p'
+            _ => 'p',
         };
-
-        if side == 1 {
+        if side == 0 {
             c.to_ascii_uppercase()
         } else {
             c
         }
     }
+
+    pub fn value(self) -> PieceValue {
+        PieceValue::from(self as usize)
+    }
 }
 
+impl From<char> for PieceColor {
+    fn from(c: char) -> Self {
+        PieceColor::from_char_opt(c).unwrap_or(PieceColor::W)
+    }
+}
 
-impl From<char> for PieceColor
-{
-    fn from(c:char)->Self
-    {
-        match c
-        {
-            'W'|'w'=>PieceColor::W,
-            'B'|'b'=>PieceColor::B,
-            _=>PieceColor::W
+impl PieceColor {
+
+    pub fn from_char_opt(c: char) -> Option<PieceColor> {
+        match c {
+            'W' | 'w' => Some(PieceColor::W),
+            'B' | 'b' => Some(PieceColor::B),
+            _ => None,
         }
     }
 }
-#[derive(Debug,Clone,Copy)]
-pub enum AttackType
-{
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttackType {
     diagnol,
-    horizontal_vertical=1,
+    horizontal_vertical,
     pawn,
     square,
-    l_shape
+    l_shape,
 }
