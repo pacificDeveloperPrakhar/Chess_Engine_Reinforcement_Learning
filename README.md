@@ -1,5 +1,5 @@
 Chess Engine: Legal Moves and Making a Move
-![Legal Moves Filtering](./Documentation_Resources/Legal_Moves_filtering.png.png)
+![Legal Moves Filtering](./Documentation_Resources/Legal_Moves_filtering.png)
 Generating Legal Moves
 Step 1: Check the piece
 • Make sure the piece number passed has exactly one piece on it.
