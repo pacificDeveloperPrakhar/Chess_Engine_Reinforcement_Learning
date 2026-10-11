@@ -14,7 +14,7 @@ pub fn bitboards_to_modified_epd(bitboards:[[u64;7];2])->Vec<char>
         {
         if (board&(1<<itera))!=0
         {
-          result[itera]= Piece::as_char(j,i as usize);
+          result[(7 - itera/8)*8 + itera%8]= Piece::as_char(j,i as usize);
         }
          itera+=1;
         }
@@ -31,25 +31,74 @@ pub fn bitboards_to_modified_epd(bitboards:[[u64;7];2])->Vec<char>
 
 pub fn bitboards_to_fen(bitboards:[[u64;7];2])->String
 {
-  return String::from("hello");
+  let mut result=String::new();
+  for rank in (0..8).rev()
+  {
+    let mut empty=0;
+    for file in 0..8
+    {
+      let bit=1u64<<(rank*8+file);
+      let mut found:Option<char>=None;
+      for i in 0..2
+      {
+        for j in 0..6
+        {
+          if bitboards[i][j]&bit!=0
+          {
+            found=Some(Piece::as_char(j,i as usize));
+          }
+        }
+      }
+      match found
+      {
+        Some(c)=>
+        {
+          if empty>0
+          {
+            result.push_str(&empty.to_string());
+            empty=0;
+          }
+          result.push(c);
+        }
+        None=>empty+=1,
+      }
+    }
+    if empty>0
+    {
+      result.push_str(&empty.to_string());
+    }
+    if rank>0
+    {
+      result.push('/');
+    }
+  }
+  return result;
 }
 
 // FEN NOTATION to bitboard logic
 
 use crate::structures::game_session::GameSession;
+//this is matching the enum order of the pieces in the enum
+const PIECE_ORDER: &str = "pnbrkq";
 
-// Piece order must match your Piece enum indices: P, N, B, R, Q, K
-const PIECE_ORDER: &str = "pnbrqk";
-
-// Reading order: the first FEN square (a8) is bit 0, h1 is bit 63.
+// Reading order: the first FEN square (a1) is bit 0, h8 is bit 63.
 // This matches how bitboards_to_modified_epd writes square k at character k.
-// If your engine uses a1 = bit 0, change this one function to: rank_from_top_inverted
+// basically the order is like this
+//       a   b   c   d   e   f   g   h
+//  8   57  58  59  60  61  62  63  64
+//  7   49  50  51  52  53  54  55  56
+//  6   41  42  43  44  45  46  47  48
+//  5   33  34  35  36  37  38  39  40
+//  4   25  26  27  28  29  30  31  32
+//  3   17  18  19  20  21  22  23  24
+//  2    9  10  11  12  13  14  15  16
+//  1    1   2   3   4   5   6   7   8
 fn square_bit(rank_from_top: usize, file: usize) -> u64
 {
-	1u64 << (rank_from_top * 8 + file)
+	1u64 << ((7 - rank_from_top) * 8 + file)
 }
 
-pub fn fen_to_bitboards(fen: &str) -> Result<FenPosition, String>
+pub fn fen_to_bitboards(fen: &str) -> Result<GameSession, String>
 {
 	let mut fields = fen.split_whitespace();
 
@@ -113,7 +162,7 @@ pub fn fen_to_bitboards(fen: &str) -> Result<FenPosition, String>
 	};
 
 	// 3. En passant target square, e.g. "e3"
-	let en_passant = if ep == "-" { None } else
+	let en_passant = if ep == "-" { 0 } else
 	{
 		let b = ep.as_bytes();
 		if b.len() != 2 || !(b'a'..=b'h').contains(&b[0]) || !(b'1'..=b'8').contains(&b[1])
@@ -122,16 +171,16 @@ pub fn fen_to_bitboards(fen: &str) -> Result<FenPosition, String>
 		}
 		let file = (b[0] - b'a') as usize;
 		let rank_from_top = 8 - (b[1] - b'0') as usize;
-		Some(square_bit(rank_from_top, file))
+		square_bit(rank_from_top, file)
 	};
 
-	Ok(GameSession
-	{
-		bitboards,
-		side_to_move,
-		castling: castling.to_string(),
-		en_passant,
-		halfmove: halfmove.parse().map_err(|_| "bad halfmove clock")?,
-		fullmove: fullmove.parse().map_err(|_| "bad fullmove number")?,
-	})
+	
+	let mut session = GameSession::new();
+	session.bitboards = bitboards;
+	session.side_to_move = side_to_move;
+	session.castling = castling.to_string();
+	session.ep_target = en_passant;
+	session.halfmove = halfmove.parse().map_err(|_| "bad halfmove clock")?;
+	session.fullmove = fullmove.parse().map_err(|_| "bad fullmove number")?;
+	Ok(session)
 }
