@@ -1,22 +1,18 @@
-use crate::evaluator::evaluate_score; // adjust the path to match your module layout
+use crate::evaluator::evaluate_score;
 use crate::generator::{generating_moves_with_king_safety, generate_moves_for_king};
 use crate::structures::annotations::Piece;
 
-
-pub struct Node_Min_Max<'min_max_calculation, 'next_node_lifetime>
+pub struct Node_Min_Max
 {
 	pub bitboards: [[u64; 7]; 2],
-	pub children: Vec<Node_Min_Max<'min_max_calculation, 'next_node_lifetime>>,
+	pub children: Vec<Node_Min_Max>,
 	pub value: f64,
 	pub role: u8,        // side that just moved; side to move is 1 - role
 	pub expanded: bool,  // true once calculate_children has run (even if it found no moves)
-	// outer reference lives for 'min_max_calculation,
-	// the node it points to has its own borrows valid for 'next_node_lifetime
-	pub next_best_move: Option<&'min_max_calculation Node_Min_Max<'next_node_lifetime, 'next_node_lifetime>>,
+	pub next_best_move: Option<usize>, // index into self.children, no borrow needed
 }
 
-// FIX 1: declare both lifetimes and apply both to the type
-impl<'min_max_calculation, 'next_node_lifetime> Node_Min_Max<'min_max_calculation, 'next_node_lifetime>
+impl Node_Min_Max
 {
 	pub fn expand(&mut self, depth: usize)
 	{
@@ -34,15 +30,29 @@ impl<'min_max_calculation, 'next_node_lifetime> Node_Min_Max<'min_max_calculatio
 		}
 	}
 
+	// White to move
 	pub fn new_state(bitboards: [[u64; 7]; 2]) -> Self
 	{
-		Node_Min_Max { bitboards, children: Vec::new(), value: 0.0, role: 0, expanded: false, next_best_move: None }
+		Self::new_state_for(bitboards, 0)
 	}
 
-	// Explicit version: side_to_move 0 = white, 1 = black.
+	// side_to_move: 0 = white, 1 = black.
 	pub fn new_state_for(bitboards: [[u64; 7]; 2], side_to_move: u8) -> Self
 	{
-		Node_Min_Max { bitboards, children: Vec::new(), value: 0.0, role: 1 - side_to_move, expanded: false, next_best_move: None }
+		Node_Min_Max
+		{
+			bitboards,
+			children: Vec::new(),
+			value: 0.0,
+			role: 1 - side_to_move,
+			expanded: false,
+			next_best_move: None,
+		}
+	}
+
+	pub fn side_to_move(&self) -> usize
+	{
+		1 - self.role as usize
 	}
 
 	pub fn evaluate(&self) -> f64
@@ -50,12 +60,19 @@ impl<'min_max_calculation, 'next_node_lifetime> Node_Min_Max<'min_max_calculatio
 		evaluate_score(self.bitboards)
 	}
 
+	// Returns the best child, if min_max has chosen one
+	pub fn best_child(&self) -> Option<&Node_Min_Max>
+	{
+		self.next_best_move.map(|i| &self.children[i])
+	}
+
 	pub fn calculate_children(&mut self)
 	{
 		self.children = Vec::new();
 		self.expanded = true;
+		self.next_best_move = None;
 
-		let player = self.role as usize;
+		let player = self.side_to_move(); // FIX: was self.role (the side that just moved)
 		let enemy = 1 - player;
 
 		for i in 0..6 // exclude Piece::A (index 6), the aggregate occupancy board
@@ -67,7 +84,6 @@ impl<'min_max_calculation, 'next_node_lifetime> Node_Min_Max<'min_max_calculatio
 				bitboard &= bitboard - 1;
 				let from: u64 = 1u64 << piece_index;
 
-				// King moves must be filtered against enemy-attacked squares
 				let mut m = if i == Piece::K as usize {
 					generate_moves_for_king(self.bitboards, from)
 				} else {
@@ -81,24 +97,19 @@ impl<'min_max_calculation, 'next_node_lifetime> Node_Min_Max<'min_max_calculatio
 
 					let mut new_bitboards = self.bitboards;
 
-					// Move the piece
 					new_bitboards[player][i] &= !from;
 					new_bitboards[player][i] |= next_move;
 
-					// Keep the mover's aggregate occupancy in sync (defensive, not XOR)
 					new_bitboards[player][Piece::A as usize] &= !from;
 					new_bitboards[player][Piece::A as usize] |= next_move;
 
-					// Capture: remove any enemy piece on the target square (including its aggregate board)
 					for j in 0..7
 					{
 						new_bitboards[enemy][j] &= !next_move;
 					}
 
-					// FIX 3: Self:: so the child has the same lifetimes as its parent
-					let mut child = Self::new_state_for(new_bitboards, enemy as u8);
-					child.value = 0.0;
-					self.children.push(child);
+					// the child's side to move is the enemy
+					self.children.push(Self::new_state_for(new_bitboards, enemy as u8));
 				}
 			}
 		}

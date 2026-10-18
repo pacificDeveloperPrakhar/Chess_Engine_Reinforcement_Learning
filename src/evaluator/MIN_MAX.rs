@@ -18,28 +18,37 @@ pub fn min_max(mut alpha: f64, mut beta: f64, role: i8, curr: &mut Node_Min_Max,
 
 	if curr.children.is_empty()
 	{
-
+		// NOTE: this treats "no legal moves" as checkmate. See the stalemate note below.
 		let d = depth as f64;
 		return if role == 1 { -(MATE + d) } else { MATE + d };
 	}
 
 	let mut best = if role == 1 { f64::NEG_INFINITY } else { f64::INFINITY };
+	curr.next_best_move = None;
 
-	for child in curr.children.iter_mut()
+	for i in 0..curr.children.len()
 	{
-		let v = min_max(alpha, beta, -role, child, depth - 1);
+		let v = min_max(alpha, beta, -role, &mut curr.children[i], depth - 1);
+
 		if role == 1
 		{
-			best = best.max(v);
+			if v > best
+			{
+				best = v;
+				curr.next_best_move = Some(i); // only when this child is actually better
+			}
 			alpha = alpha.max(best);
-			curr.next_best_move = Option::Some(&child);
 		}
 		else
 		{
-			best = best.min(v);
+			if v < best
+			{
+				best = v;
+				curr.next_best_move = Some(i);
+			}
 			beta = beta.min(best);
-			curr.next_best_move = Option::Some(&child);
 		}
+
 		if beta <= alpha
 		{
 			break;

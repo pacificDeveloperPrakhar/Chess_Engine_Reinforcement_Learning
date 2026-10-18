@@ -46,3 +46,6 @@ Step 5: Handle promotion
 • Take that piece and check if it should be promoted.
     ◦ This is true when the pawn has reached the last rank.
 • If yes, replace the pawn with the promoted piece (for example, a queen).
+
+
+[Read about the UI](./royal-gambit-ui-main/UI_README.md)

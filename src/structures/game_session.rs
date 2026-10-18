@@ -278,5 +278,70 @@ impl GameSession {
     pub fn play(&mut self, select: u64) -> GamePlay {
         self.play_with_promotion(select, Piece::Q)
     }
+    pub fn play_with_promotion(&mut self, select: u64, promo: Piece) -> GamePlay {
+        if select.count_ones() != 1 {
+            return self.snapshot();
+        }
+        if matches!(
+            self.status,
+            GameStatus::Checkmate | GameStatus::Stalemate | GameStatus::DrawFiftyMove
+        ) {
+            return self.snapshot();
+        }
+        let side = self.side_to_move as usize;
 
+        match self.mode {
+            mode::select => {
+                if self.bitboards[side][ALL] & select == 0 {
+                    return self.snapshot();
+                }
+                let moves = self.legal_moves(select);
+                if moves != 0 {
+                    self.selected = select;
+                    self.piece_selected = self.piece_at(side, select);
+                    self.moves_available = moves;
+                    self.mode = mode::moving;
+                }
+                self.snapshot()
+            }
+
+            mode::moving => {
+                if self.moves_available & select != 0 {
+                    let from = self.selected;
+                    let is_pawn = matches!(self.piece_selected, Some(Piece::P));
+                    let is_capture = self.bitboards[1 - side][ALL] & select != 0
+                        || (is_pawn && select == self.ep_target);
+
+                    self.bitboards = make_move(
+                        self.bitboards, side, from, select, self.ep_target, promo as usize,
+                    );
+                    self.update_castling_rights(from, select);
+
+                    self.ep_target = if is_pawn && side == 0 && select == from << 16 {
+                        from << 8
+                    } else if is_pawn && side == 1 && select == from >> 16 {
+                        from >> 8
+                    } else {
+                        0
+                    };
+
+                    self.halfmove = if is_pawn || is_capture { 0 } else { self.halfmove + 1 };
+                    if side == 1 {
+                        self.fullmove += 1;
+                    }
+                    self.side_to_move = 1 - self.side_to_move;
+                    self.deselect();
+                    self.status = self.compute_status();
+                    return self.snapshot();
+                }
+
+                let other_own = self.bitboards[side][ALL] & select != 0 && select != self.selected;
+                self.deselect();
+                if other_own {
+                    return self.play_with_promotion(select, promo);
+                }
+                self.snapshot()
+            }
+        }
+    }
 }
