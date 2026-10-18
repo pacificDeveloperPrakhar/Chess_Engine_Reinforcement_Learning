@@ -49,3 +49,29 @@ Step 5: Handle promotion
 
 
 [Read about the UI](./royal-gambit-ui-main/UI_README.md)
+
+PLAYOUT LOGIC
+
+select the piece u want to move ,if the piece selected is the player own piece then fine ,else
+make ignore or drop the request
+
+if the selected square is player own piece, if its having legal moves if yes then continue else ignore
+
+switch to moving mode and update the game session ,
+
+MOVING MODE:
+
+if the selected piece is in the moving squares list
+
+if not then switch the mode to select 
+
+if the selected square is in the moving square then 
+
+perform the generation 
+
+updation ,castling and whatever needed
+
+switch the mode to the select
+
+
+![Playout Logic](./Documentation_Resources/Game_Playout_Logic.png)
