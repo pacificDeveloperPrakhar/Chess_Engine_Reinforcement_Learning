@@ -1,0 +1,12 @@
+[package]
+name = "Server"
+version = "0.1.0"
+edition = "2024"
+
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+wtransport = "0.6"
+async-trait = "0.1"
+anyhow = "1"
+futures-util = { version = "0.3", default-features = false, features = ["std"] }

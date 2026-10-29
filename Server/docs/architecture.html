@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chess Server Design</title>
+<style>
+  @page { size: A4; margin: 16mm 15mm; }
+  :root {
+    --ink: #1f2328; --muted: #57606a; --line: #d0d7de; --soft: #f6f8fa;
+    --blue: #0969da; --blue-bg: #ddf4ff; --amber: #9a6700; --amber-bg: #fff8c5;
+    --green: #1a7f37; --green-bg: #dafbe1; --purple: #8250df; --purple-bg: #fbefff;
+    --red: #cf222e; --red-bg: #ffebe9;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { margin: 0; background: #fff; color: var(--ink);
+         font: 10pt/1.5 "Inter", "Segoe UI", "Helvetica Neue", "Liberation Sans", "DejaVu Sans", Arial, sans-serif; }
+  code, pre { font-family: "JetBrains Mono", "DejaVu Sans Mono", "Liberation Mono", Consolas, monospace; font-size: 8.6pt; }
+  code { background: var(--soft); border: 1px solid #eaeef2; border-radius: 3px; padding: 0 3px; }
+  pre { background: var(--soft); border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; line-height: 1.45; white-space: pre-wrap; margin: 4px 0 8px; break-inside: avoid; }
+  pre code { background: none; border: 0; padding: 0; }
+  h1 { font-size: 22pt; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 14.5pt; margin: 0 0 8px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); break-after: avoid; }
+  h3 { font-size: 11.5pt; margin: 12px 0 4px; break-after: avoid; }
+  p { margin: 0 0 7px; }
+  section { break-before: page; }
+  section.first { break-before: auto; }
+  figure { margin: 8px 0 12px; break-inside: avoid; }
+  figure svg { width: 100%; height: auto; display: block; }
+  figcaption { font-size: 8.6pt; color: var(--muted); margin-top: 4px; }
+  figcaption b { color: var(--ink); }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 8.8pt; break-inside: avoid; }
+  th, td { text-align: left; vertical-align: top; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+  th { background: var(--soft); font-weight: 600; border-top: 1px solid var(--line); }
+  .subtitle { color: var(--muted); font-size: 11pt; margin-bottom: 12px; }
+  .callout { border-left: 3px solid var(--blue); background: var(--blue-bg); padding: 7px 10px; border-radius: 0 6px 6px 0; margin: 8px 0 12px; break-inside: avoid; }
+  .callout.warn { border-color: var(--amber); background: var(--amber-bg); }
+
+  svg text { font-family: inherit; fill: var(--ink); font-size: 11px; }
+  svg .s { font-size: 9.5px; fill: var(--muted); }
+  svg .b { font-weight: 600; }
+  svg .m { font-family: "DejaVu Sans Mono", "Liberation Mono", monospace; font-size: 9.5px; }
+  svg .box { fill: #fff; stroke: var(--line); stroke-width: 1.2; }
+  svg .soft { fill: var(--soft); stroke: #8c959f; stroke-width: 1.2; }
+  svg .ifc { fill: var(--blue-bg); stroke: var(--blue); stroke-width: 1.3; }
+  svg .ifi { fill: #fff; stroke: #54aeff; stroke-width: 1.1; }
+  svg .dsp { fill: var(--amber-bg); stroke: var(--amber); stroke-width: 1.3; }
+  svg .reg { fill: var(--green-bg); stroke: var(--green); stroke-width: 1.3; }
+  svg .ch  { fill: var(--purple-bg); stroke: var(--purple); stroke-width: 1.2; }
+  svg .bad { fill: var(--red-bg); stroke: var(--red); stroke-width: 1.2; }
+  svg .ar  { stroke: var(--muted); stroke-width: 1.3; fill: none; marker-end: url(#aGray); }
+  svg .arB { stroke: var(--blue); stroke-width: 1.4; fill: none; marker-end: url(#aBlue); }
+  svg .arG { stroke: var(--green); stroke-width: 1.3; fill: none; marker-end: url(#aGreen); }
+  svg .arR { stroke: var(--red); stroke-width: 1.3; fill: none; marker-end: url(#aRed); }
+  svg .dash { stroke-dasharray: 4 3; }
+  svg .life { stroke: #8c959f; stroke-width: 1; stroke-dasharray: 3 4; }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <marker id="aGray" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#57606a"/></marker>
+    <marker id="aBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#0969da"/></marker>
+    <marker id="aGreen" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1a7f37"/></marker>
+    <marker id="aRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#cf222e"/></marker>
+  </defs>
+</svg>
+
+<!-- ================================================================ -->
+<section class="first">
+  <h1>Chess Server Design</h1>
+  <div class="subtitle">WebTransport over QUIC · one "interface" thread · 10 worker tasks · 100 connections · waiting line</div>
+
+  <p>This is a reference for the game server in <code>Server/</code>, written to match the code as it is now. It covers four things: how the server is structured, how a client gets in, how a request is handled, and how the server is tested and measured. Every component shown exists in the code; nothing is planned or assumed.</p>
+
+  <h2 style="margin-top:12px">1. Threads and the interface</h2>
+  <p>The <code>main</code> thread starts one thread, named <code>interface</code>, and waits for it to finish. The <code>interface</code> thread runs a tokio <b>current-thread</b> runtime inside a <code>LocalSet</code>. On it run exactly <b>11 tasks</b>: the interface, which accepts and admits clients, and <b>10 worker tasks</b>, which handle all 100 connections between them.</p>
+
+  <figure>
+  <svg viewBox="0 0 720 420" role="img" aria-label="Threads, interface and workers">
+    <rect x="6" y="6" width="708" height="408" rx="10" fill="none" stroke="#8c959f" stroke-dasharray="5 4"/>
+    <text x="18" y="24" class="s">process: Server</text>
+
+    <rect class="soft" x="24" y="40" width="210" height="62" rx="6"/>
+    <text x="129" y="62" text-anchor="middle" class="b">main thread</text>
+    <text x="129" y="79" text-anchor="middle" class="m">spawn("interface")</text>
+    <text x="129" y="93" text-anchor="middle" class="m">join()  — nothing else</text>
+    <line class="ar" x1="234" y1="71" x2="262" y2="71"/>
+
+    <rect class="box" x="24" y="150" width="210" height="130" rx="6"/>
+    <text x="129" y="172" text-anchor="middle" class="b">Clients</text>
+    <text x="129" y="188" text-anchor="middle" class="s">browser or smoke_client</text>
+    <rect class="soft" x="44" y="200" width="170" height="24" rx="12"/><text x="129" y="216" text-anchor="middle" class="s">up to 100 connected</text>
+    <rect class="soft" x="44" y="230" width="170" height="24" rx="12" style="stroke-dasharray:4 3"/><text x="129" y="246" text-anchor="middle" class="s">up to 50 waiting</text>
+    <text x="129" y="270" text-anchor="middle" class="s">WebTransport / QUIC · UDP 4433</text>
+    <path class="arB" d="M234,186 L250,186 L250,140 L276,140"/>
+    <path class="arB" d="M234,262 L250,262 L250,372 L276,372" style="stroke-dasharray:4 3"/>
+    <text x="120" y="316" text-anchor="middle" class="s">requests / replies go straight</text>
+    <text x="120" y="329" text-anchor="middle" class="s">to the worker that owns the connection</text>
+
+    <rect class="ifc" x="264" y="36" width="436" height="370" rx="8"/>
+    <text x="482" y="54" text-anchor="middle" class="b">"interface" thread · current_thread runtime + LocalSet</text>
+
+    <rect class="ifi" x="278" y="62" width="408" height="112" rx="6"/>
+    <text x="290" y="80" class="b">interface  (the main future)</text>
+    <text x="290" y="95" class="s">accept loop + pending handshakes + clients waiting in line, in one FuturesUnordered</text>
+    <rect class="dsp" x="290" y="104" width="190" height="60" rx="6"/>
+    <text x="385" y="122" text-anchor="middle" class="b">Admission</text>
+    <text x="385" y="138" text-anchor="middle" class="m">Semaphore(100 permits)</text>
+    <text x="385" y="154" text-anchor="middle" class="s">line ≤ 50 · wait ≤ 30 s · FIFO</text>
+    <rect class="reg" x="488" y="104" width="188" height="60" rx="6"/>
+    <text x="582" y="122" text-anchor="middle" class="b">Connections</text>
+    <text x="582" y="138" text-anchor="middle" class="m">Vec&lt;Option&lt;Client&gt;&gt; × 100</text>
+    <text x="582" y="154" text-anchor="middle" class="s">heap · Rc&lt;RefCell&gt; · no locks</text>
+
+    <line class="ar" x1="482" y1="174" x2="482" y2="200"/>
+    <text x="490" y="192" class="s">client in slot s → worker s % 10 (mpsc)</text>
+
+    <g>
+      <rect class="ifi" x="280" y="204" width="37" height="30" rx="4"/><text x="298.5" y="223" text-anchor="middle" class="m">w0</text>
+      <rect class="ifi" x="320" y="204" width="37" height="30" rx="4"/><text x="338.5" y="223" text-anchor="middle" class="m">w1</text>
+      <rect class="ifi" x="360" y="204" width="37" height="30" rx="4"/><text x="378.5" y="223" text-anchor="middle" class="m">w2</text>
+      <rect x="400" y="204" width="37" height="30" rx="4" fill="#fff" stroke="#0969da" stroke-width="2"/><text x="418.5" y="223" text-anchor="middle" class="m b">w3</text>
+      <rect class="ifi" x="440" y="204" width="37" height="30" rx="4"/><text x="458.5" y="223" text-anchor="middle" class="m">w4</text>
+      <rect class="ifi" x="480" y="204" width="37" height="30" rx="4"/><text x="498.5" y="223" text-anchor="middle" class="m">w5</text>
+      <rect class="ifi" x="520" y="204" width="37" height="30" rx="4"/><text x="538.5" y="223" text-anchor="middle" class="m">w6</text>
+      <rect class="ifi" x="560" y="204" width="37" height="30" rx="4"/><text x="578.5" y="223" text-anchor="middle" class="m">w7</text>
+      <rect class="ifi" x="600" y="204" width="37" height="30" rx="4"/><text x="618.5" y="223" text-anchor="middle" class="m">w8</text>
+      <rect class="ifi" x="640" y="204" width="37" height="30" rx="4"/><text x="658.5" y="223" text-anchor="middle" class="m">w9</text>
+    </g>
+    <text x="280" y="250" class="s">10 worker tasks, spawned once at startup; each owns ≤ 10 connections</text>
+    <line x1="418.5" y1="254" x2="418.5" y2="262" stroke="#0969da" stroke-width="1.5" stroke-dasharray="3 2"/>
+
+    <rect x="278" y="262" width="408" height="134" rx="6" fill="#fff" stroke="#0969da" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <text x="290" y="280" class="b">inside worker 3: one FuturesUnordered, woken by whichever is ready</text>
+    <text x="290" y="300" class="s">its connections (slots 3, 13, 23 … 93) — future: "wait for the next stream"</text>
+    <g>
+      <rect x="290" y="306" width="40" height="22" rx="3" fill="#dafbe1" stroke="#1a7f37"/><text x="310" y="321" text-anchor="middle" class="m">3</text>
+      <rect x="334" y="306" width="40" height="22" rx="3" fill="#dafbe1" stroke="#1a7f37"/><text x="354" y="321" text-anchor="middle" class="m">13</text>
+      <rect x="378" y="306" width="40" height="22" rx="3" fill="#dafbe1" stroke="#1a7f37"/><text x="398" y="321" text-anchor="middle" class="m">23</text>
+      <rect x="422" y="306" width="40" height="22" rx="3" fill="#dafbe1" stroke="#1a7f37"/><text x="442" y="321" text-anchor="middle" class="m">33</text>
+      <text x="482" y="321" text-anchor="middle" class="b">…</text>
+      <rect x="502" y="306" width="40" height="22" rx="3" fill="#dafbe1" stroke="#1a7f37"/><text x="522" y="321" text-anchor="middle" class="m">93</text>
+    </g>
+    <text x="290" y="348" class="s">their streams — future: "write the last reply, then read the next frame"</text>
+    <g>
+      <rect x="290" y="354" width="40" height="22" rx="3" fill="#fff" stroke="#54aeff" stroke-dasharray="3 2"/><text x="310" y="369" text-anchor="middle" class="m">st</text>
+      <rect x="334" y="354" width="40" height="22" rx="3" fill="#fff" stroke="#54aeff" stroke-dasharray="3 2"/><text x="354" y="369" text-anchor="middle" class="m">st</text>
+      <rect x="378" y="354" width="40" height="22" rx="3" fill="#fff" stroke="#54aeff" stroke-dasharray="3 2"/><text x="398" y="369" text-anchor="middle" class="m">st</text>
+      <rect x="422" y="354" width="40" height="22" rx="3" fill="#fff" stroke="#54aeff" stroke-dasharray="3 2"/><text x="442" y="369" text-anchor="middle" class="m">st</text>
+      <text x="482" y="369" text-anchor="middle" class="b">…</text>
+      <rect x="502" y="354" width="40" height="22" rx="3" fill="#fff" stroke="#54aeff" stroke-dasharray="3 2"/><text x="522" y="369" text-anchor="middle" class="m">st</text>
+    </g>
+    <text x="556" y="366" class="s">ready → handle_frame</text>
+    <text x="556" y="379" class="s">(synchronous)</text>
+  </svg>
+  <figcaption><b>Figure 1.</b> One working OS thread (<code>interface</code>) runs the interface future and 10 workers. A client admitted into slot <i>s</i> is owned by worker <i>s</i> % 10 for its whole life, so each worker owns at most 10 connections. The task count stays at 11 whether 1 or 100 clients are connected. Admission and Connections are shared without locks.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>1b. Components and the concurrency model</h2>
+  <table>
+    <tr><th style="width:20%">Part</th><th style="width:21%">File</th><th>Job</th></tr>
+    <tr><td><code>main</code></td><td><code>src/main.rs</code></td><td>Starts the <code>interface</code> thread and waits for it</td></tr>
+    <tr><td><code>run</code> (interface)</td><td><code>src/main.rs</code></td><td>Binds the endpoint, starts the 10 workers, accepts clients, sends each admitted client to its worker, shuts down on Ctrl-C</td></tr>
+    <tr><td><code>admit</code></td><td><code>src/main.rs</code></td><td>Handshake → permit (now, or after waiting in line) → slot</td></tr>
+    <tr><td><code>worker::run</code></td><td><code>src/worker.rs</code></td><td>One of the 10 workers: waits on all its connections and streams, handles whichever is ready</td></tr>
+    <tr><td><code>handle_frame</code>, <code>handle_request</code></td><td><code>src/worker.rs</code></td><td>Plain synchronous code: decode → read or update the client's slot → encode the reply</td></tr>
+    <tr><td><code>Admission</code></td><td><code>src/admission.rs</code></td><td>100 permits plus a bounded FIFO waiting line</td></tr>
+    <tr><td><code>Connections</code></td><td><code>src/connections.rs</code></td><td>The 100-slot heap <code>Vec</code> of clients</td></tr>
+    <tr><td><code>Payload</code></td><td><code>src/Payload/</code></td><td>Request/Response encode and decode, shared with the test client</td></tr>
+  </table>
+
+  <h3>Single thread, but asynchronous</h3>
+  <table>
+    <tr><th style="width:42%">Question</th><th>Answer</th></tr>
+    <tr><td>How many threads do the work?</td><td><b>One</b>: <code>interface</code>. <code>main</code> only waits.</td></tr>
+    <tr><td>How many tasks?</td><td><b>11</b>: the interface plus 10 workers, fixed at startup. (wtransport's QUIC library also runs its own internal tasks on this thread.)</td></tr>
+    <tr><td>How does one worker serve 10 connections?</td><td>It keeps one pending future per connection ("next stream") and one per stream ("write the last reply, then read the next frame") in a <code>FuturesUnordered</code>, and handles whichever becomes ready.</td></tr>
+    <tr><td>Are clients served in parallel?</td><td><b>No.</b> Only one piece of code runs at any instant.</td></tr>
+    <tr><td>Are clients served concurrently?</td><td><b>Yes.</b> All 100 connections are in progress at once; the 10 workers and the interface take turns on the thread.</td></tr>
+    <tr><td>When does a task give up the thread?</td><td>When none of its futures is ready. Because writes happen inside each stream's own future, a slow client only holds up its own stream, not the rest of its worker.</td></tr>
+    <tr><td>Why no locks?</td><td><code>handle_request</code> has no <code>.await</code>, so one request finishes before the next one starts, and only this thread touches the store.</td></tr>
+    <tr><td>What would freeze everyone?</td><td>Slow synchronous work inside <code>handle_request</code>, such as a deep engine search. That kind of work belongs on <code>spawn_blocking</code>.</td></tr>
+  </table>
+
+  <div class="callout">Every slot stores a unique client <code>id</code>, and lookups check the slot index and the id together. A stream left over from a client that has gone can therefore never change the next client that takes the same slot.</div>
+</section>
+
+<!-- ================================================================ -->
+<section>
+  <h2>2. How a client gets in</h2>
+  <p>Admission is a <code>tokio::sync::Semaphore</code> with one permit per slot. Its wait list is the buffer that holds clients until a slot is free. A session holds its permit until the client leaves, so holding a permit guarantees a free slot.</p>
+
+  <figure>
+  <svg viewBox="0 0 720 300" role="img" aria-label="Admission flow">
+    <rect class="box" x="10" y="20" width="160" height="40" rx="6"/><text x="90" y="37" text-anchor="middle">QUIC + TLS handshake</text><text x="90" y="51" text-anchor="middle" class="s">HTTP/3 CONNECT arrives</text>
+    <line class="ar" x1="170" y1="40" x2="198" y2="40"/>
+    <rect class="dsp" x="200" y="20" width="140" height="40" rx="20"/><text x="270" y="44" text-anchor="middle" class="b">free permit?</text>
+
+    <line class="arG" x1="340" y1="34" x2="558" y2="34"/><text x="450" y="28" text-anchor="middle" class="s">yes (and nobody waiting)</text>
+    <rect class="reg" x="560" y="16" width="150" height="48" rx="6"/><text x="635" y="36" text-anchor="middle" class="b">accept CONNECT</text><text x="635" y="52" text-anchor="middle" class="s">insert into first free slot</text>
+
+    <line class="ar" x1="270" y1="60" x2="270" y2="108"/><text x="278" y="88" class="s">no</text>
+    <rect class="dsp" x="200" y="110" width="140" height="40" rx="20"/><text x="270" y="134" text-anchor="middle" class="b">50 waiting?</text>
+    <line class="arR" x1="200" y1="130" x2="172" y2="130"/><text x="186" y="123" text-anchor="middle" class="s">yes</text>
+    <rect class="bad" x="10" y="110" width="160" height="40" rx="6"/><text x="90" y="128" text-anchor="middle" class="b">429</text><text x="90" y="142" text-anchor="middle" class="s">LineFull (at once)</text>
+
+    <line class="ar" x1="270" y1="150" x2="270" y2="198"/><text x="278" y="178" class="s">no</text>
+    <rect class="dsp" x="200" y="200" width="140" height="44" rx="6"/><text x="270" y="219" text-anchor="middle" class="b">wait in line</text><text x="270" y="234" text-anchor="middle" class="s">FIFO · CONNECT unanswered</text>
+    <line class="arR" x1="200" y1="222" x2="172" y2="222"/><text x="186" y="215" text-anchor="middle" class="s">30 s</text>
+    <rect class="bad" x="10" y="202" width="160" height="40" rx="6"/><text x="90" y="220" text-anchor="middle" class="b">429</text><text x="90" y="234" text-anchor="middle" class="s">TimedOut</text>
+
+    <path class="arG" d="M340,222 L520,222 L520,54 L558,54"/><text x="528" y="196" class="s">slot freed</text>
+
+    <line class="ar" x1="635" y1="64" x2="635" y2="108"/>
+    <rect class="ifc" x="560" y="110" width="150" height="40" rx="6"/><text x="635" y="128" text-anchor="middle" class="b">serve streams</text><text x="635" y="142" text-anchor="middle" class="s">requests until it leaves</text>
+    <line class="ar" x1="635" y1="150" x2="635" y2="256"/>
+    <rect class="box" x="360" y="258" width="350" height="34" rx="6" style="fill:#f6f8fa"/>
+    <text x="535" y="279" text-anchor="middle">client leaves → remove from slot → drop permit</text>
+    <path class="ar dash" d="M360,275 L300,275 L300,246"/><text x="352" y="270" text-anchor="end" class="s">next in line</text>
+  </svg>
+  <figcaption><b>Figure 2.</b> Admission decisions. A waiting client has finished its QUIC handshake but has no answer to its <code>CONNECT</code> yet, so a browser shows it as "connecting". The server's 3 s keep-alive keeps its connection open while it waits.</figcaption>
+  </figure>
+
+  <table>
+    <tr><th style="width:36%">Situation</th><th>What happens</th></tr>
+    <tr><td>A slot is free and nobody is waiting</td><td>The client enters immediately</td></tr>
+    <tr><td>All 100 slots taken, fewer than 50 waiting</td><td>The client waits in line</td></tr>
+    <tr><td>A connected client leaves</td><td>Its permit goes straight to the client that has waited longest</td></tr>
+    <tr><td>50 already waiting</td><td>Refused at once with 429 (<code>LineFull</code>)</td></tr>
+    <tr><td>Waited 30 s with no free slot</td><td>Refused with 429 (<code>TimedOut</code>)</td></tr>
+    <tr><td>Ctrl-C</td><td>Every waiting client is refused (<code>Closed</code>), and every connection is closed</td></tr>
+  </table>
+  <p>The limits are constants: <code>MAX_CONNECTIONS = 100</code> in <code>src/connections.rs</code>, and <code>MAX_WAITING = 50</code> and <code>MAX_WAIT = 30 s</code> in <code>src/admission.rs</code>.</p>
+</section>
+
+<!-- ================================================================ -->
+<section>
+  <h2>3. How a request is handled</h2>
+
+  <figure>
+  <svg viewBox="0 0 720 340" role="img" aria-label="Request handling">
+    <rect class="soft" x="20" y="10" width="110" height="30" rx="4"/><text x="75" y="29" text-anchor="middle" class="b">client</text>
+    <rect class="ifc" x="200" y="10" width="130" height="30" rx="4"/><text x="265" y="29" text-anchor="middle" class="b">worker w</text>
+    <rect class="ifc" x="400" y="10" width="130" height="30" rx="4"/><text x="465" y="29" text-anchor="middle" class="b">handle_request</text>
+    <rect class="reg" x="590" y="10" width="110" height="30" rx="4"/><text x="645" y="29" text-anchor="middle" class="b">client's slot</text>
+    <line class="life" x1="75" y1="40" x2="75" y2="330"/>
+    <line class="life" x1="265" y1="40" x2="265" y2="330"/>
+    <line class="life" x1="465" y1="40" x2="465" y2="330"/>
+    <line class="life" x1="645" y1="40" x2="645" y2="330"/>
+
+    <line class="arB" x1="75" y1="70" x2="263" y2="70"/><text x="169" y="64" text-anchor="middle" class="s">frame [len][payload]</text>
+    <rect class="ifi" x="200" y="82" width="130" height="22" rx="4"/><text x="265" y="97" text-anchor="middle" class="s">stream future reads</text>
+    <rect class="ifi" x="200" y="112" width="130" height="22" rx="4"/><text x="265" y="127" text-anchor="middle" class="s">handle_frame: decode</text>
+    <line class="arR dash" x1="265" y1="152" x2="77" y2="152"/><text x="169" y="146" text-anchor="middle" class="s">None → [00] error frame</text>
+
+    <line class="ar" x1="265" y1="184" x2="463" y2="184"/><text x="364" y="178" text-anchor="middle" class="s">Some(req)</text>
+    <line class="arG" x1="465" y1="212" x2="643" y2="212"/><text x="554" y="206" text-anchor="middle" class="s">borrow_mut · get_mut(slot, id)</text>
+    <line class="arG dash" x1="645" y1="240" x2="467" y2="240"/><text x="554" y="234" text-anchor="middle" class="s">read / update fen</text>
+    <line class="ar" x1="465" y1="268" x2="267" y2="268"/><text x="364" y="262" text-anchor="middle" class="s">Response</text>
+    <line class="arB" x1="265" y1="304" x2="77" y2="304"/><text x="169" y="298" text-anchor="middle" class="s">[len][Response::encode()]</text>
+    <text x="275" y="322" class="s">new stream future: write the reply, then read the next frame</text>
+  </svg>
+  <figcaption><b>Figure 3.</b> One request on one stream, inside the worker that owns the connection. The stream's future reads the frame and wakes the worker. <code>handle_frame</code> runs synchronously, with no <code>.await</code>, and puts the reply in the stream's buffer. The next stream future then writes the reply and reads the next frame.</figcaption>
+  </figure>
+
+  <table>
+    <tr><th style="width:20%">Request</th><th style="width:18%">Payload length</th><th>Server reply</th></tr>
+    <tr><td><code>GetFen</code></td><td>1</td><td><code>Fen</code> of this client's board (32 bytes)</td></tr>
+    <tr><td><code>SetFen</code></td><td>32</td><td>Stores the board in the slot, replies <code>Fen</code> of it</td></tr>
+    <tr><td><code>Select(u64)</code></td><td>8</td><td><code>Select</code> with the same square (an echo until the engine is connected)</td></tr>
+    <tr><td><code>Move</code></td><td>17</td><td><code>Move</code> unchanged (an echo until the engine is connected)</td></tr>
+    <tr><td>any other length</td><td>—</td><td>Zero-length error frame; the stream stays open</td></tr>
+  </table>
+
+  <h3>Wire frame</h3>
+<pre><code>[ len: u8 ][ payload: len bytes ]      same in both directions
+
+len  1 → GetFen         (request)
+len  8 → Select(u64)    (request and response), big-endian
+len 17 → Move           from u64 + to u64 + role u8, big-endian
+len 32 → SetFen / Fen   64 squares × 4 bits (piece &lt;&lt; 1 | colour)
+len  0 → error frame    (response only)</code></pre>
+</section>
+
+<!-- ================================================================ -->
+<section>
+  <h2>4. How performance is tested</h2>
+  <p><code>examples/smoke_client.rs</code> is a real WebTransport client. It includes the server's own <code>src/Payload</code> code through <code>#[path]</code>. Its request dispatcher therefore builds requests with <code>Request::encode</code> and reads replies with <code>Response::decode</code>, the exact inverse of what the server does.</p>
+
+  <figure>
+  <svg viewBox="0 0 720 300" role="img" aria-label="Dispatcher and test phases">
+    <rect class="ifi" x="20" y="16" width="120" height="32" rx="4"/><text x="80" y="36" text-anchor="middle" class="b">Request</text>
+    <rect class="ifi" x="160" y="16" width="120" height="32" rx="4"/><text x="220" y="36" text-anchor="middle" class="m">encode()</text>
+    <rect class="ifi" x="300" y="16" width="120" height="32" rx="4"/><text x="360" y="36" text-anchor="middle" class="m">frame [len]</text>
+    <rect class="ifi" x="440" y="16" width="120" height="32" rx="4"/><text x="500" y="36" text-anchor="middle">bidi stream</text>
+    <line class="ar" x1="140" y1="32" x2="158" y2="32"/><line class="ar" x1="280" y1="32" x2="298" y2="32"/>
+    <line class="ar" x1="420" y1="32" x2="438" y2="32"/><line class="arB" x1="560" y1="32" x2="578" y2="32"/>
+    <rect class="ifc" x="580" y="16" width="120" height="90" rx="6"/><text x="640" y="58" text-anchor="middle" class="b">server</text><text x="640" y="74" text-anchor="middle" class="s">interface thread</text>
+
+    <rect class="ifi" x="20" y="74" width="120" height="32" rx="4"/><text x="80" y="94" text-anchor="middle" class="b">Response</text>
+    <rect class="ifi" x="160" y="74" width="120" height="32" rx="4"/><text x="220" y="94" text-anchor="middle" class="m">decode()</text>
+    <rect class="ifi" x="300" y="74" width="120" height="32" rx="4"/><text x="360" y="94" text-anchor="middle" class="m">read [len]</text>
+    <rect class="ifi" x="440" y="74" width="120" height="32" rx="4"/><text x="500" y="94" text-anchor="middle">bidi stream</text>
+    <line class="ar" x1="158" y1="90" x2="142" y2="90"/><line class="ar" x1="298" y1="90" x2="282" y2="90"/>
+    <line class="ar" x1="438" y1="90" x2="422" y2="90"/><line class="arB" x1="578" y1="90" x2="562" y2="90"/>
+    <text x="20" y="128" class="s">Each exchange logs: the request · the raw bytes in both directions (hex) · the round-trip time · the decoded reply · ok / failure</text>
+
+    <line x1="20" y1="148" x2="700" y2="148" stroke="#d0d7de"/>
+    <text x="20" y="168" class="b">Test phases (in order; widths not to scale)</text>
+    <rect class="ifc" x="20" y="180" width="128" height="100" rx="6"/>
+    <text x="84" y="198" text-anchor="middle" class="b">1 · checks</text>
+    <text x="84" y="216" text-anchor="middle" class="s">100 clients connect</text>
+    <text x="84" y="230" text-anchor="middle" class="s">GetFen, SetFen, GetFen,</text>
+    <text x="84" y="244" text-anchor="middle" class="s">Select, Move,</text>
+    <text x="84" y="258" text-anchor="middle" class="s">bad payload</text>
+    <rect class="ch" x="157" y="180" width="128" height="100" rx="6"/>
+    <text x="221" y="198" text-anchor="middle" class="b">2 · burst</text>
+    <text x="221" y="216" text-anchor="middle" class="s">barrier, then all 100</text>
+    <text x="221" y="230" text-anchor="middle" class="s">send one Move at</text>
+    <text x="221" y="244" text-anchor="middle" class="s">the same instant</text>
+    <text x="221" y="262" text-anchor="middle" class="s">(timed)</text>
+    <rect class="dsp" x="294" y="180" width="128" height="100" rx="6"/>
+    <text x="358" y="198" text-anchor="middle" class="b">3 · queue</text>
+    <text x="358" y="216" text-anchor="middle" class="s">50 more connect</text>
+    <text x="358" y="230" text-anchor="middle" class="s">while slots are full</text>
+    <text x="358" y="248" text-anchor="middle" class="s">expect 0 admitted</text>
+    <text x="358" y="262" text-anchor="middle" class="s">after 500 ms</text>
+    <rect class="bad" x="431" y="180" width="128" height="100" rx="6"/>
+    <text x="495" y="198" text-anchor="middle" class="b">4 · overflow</text>
+    <text x="495" y="216" text-anchor="middle" class="s">client 151 connects</text>
+    <text x="495" y="234" text-anchor="middle" class="s">expect 429 at once</text>
+    <text x="495" y="252" text-anchor="middle" class="s">(line full)</text>
+    <rect class="reg" x="568" y="180" width="132" height="100" rx="6"/>
+    <text x="634" y="198" text-anchor="middle" class="b">5 · turnover</text>
+    <text x="634" y="216" text-anchor="middle" class="s">first 100 leave</text>
+    <text x="634" y="230" text-anchor="middle" class="s">all 50 waiters get in,</text>
+    <text x="634" y="244" text-anchor="middle" class="s">each sends GetFen,</text>
+    <text x="634" y="258" text-anchor="middle" class="s">then leave</text>
+    <line class="ar" x1="148" y1="230" x2="155" y2="230"/><line class="ar" x1="285" y1="230" x2="292" y2="230"/>
+    <line class="ar" x1="422" y1="230" x2="429" y2="230"/><line class="ar" x1="559" y1="230" x2="566" y2="230"/>
+  </svg>
+  <figcaption><b>Figure 4.</b> Top: the request dispatcher in the test client. Bottom: the five test phases. Any wrong reply, or any admission behaving differently from expected, stops the test with an error and a non-zero exit code.</figcaption>
+  </figure>
+
+  <h3>Results (localhost, release build, 3 runs, all passed)</h3>
+  <table>
+    <tr><th style="width:48%">Measurement</th><th>Result (range over 3 runs)</th></tr>
+    <tr><td>Burst: 100 Moves at the same instant, all replies</td><td><b>3.4 – 5.8 ms</b> (round trip p50 1.8 – 3.5 ms)</td></tr>
+    <tr><td>Waiters admitted while all slots are full</td><td>0 of 50</td></tr>
+    <tr><td>Client 151 refused</td><td>2.4 – 6.2 ms, with 429</td></tr>
+    <tr><td>After 100 slots freed: 50 waiters served</td><td>12 – 22 ms</td></tr>
+    <tr><td>Requests per worker (one run)</td><td>63 – 67 each; all 10 workers busy</td></tr>
+    <tr><td>Server threads in the log</td><td><code>interface</code>: all 1306 lines of client work · <code>main</code>: 2 lines (start, finish)</td></tr>
+  </table>
+
+  <h3>How to run it</h3>
+<pre><code># terminal 1: the server prints "cert sha-256: …"
+cargo run --release
+# terminal 2: pass that hash to the test
+cargo run --release --example smoke_client -- &lt;cert-sha256&gt;</code></pre>
+
+  <div class="callout warn"><b>What the test does not cover:</b> a real network (everything runs on one machine, so there is no real latency or packet loss), a real browser client, the 30 s wait timeout, and real chess rules (<code>Select</code> and <code>Move</code> are echoes until the engine is connected).</div>
+</section>
+
+</body>
+</html>
