@@ -1,15 +1,14 @@
 use der::asn1::{
 	Any,BitString,GeneralizedTime,Int,ObjectIdentifier,OctetString,SetOfVec,UtcTime,
-}
+};
 // Any->data will be encoded on the basis of the context
 // BitString-> this will hold the bits in continuous manner
 //Generalized Time ->we are converting the UtcTime to this
 //Int-> when we have a very big number asn requires to make 2s complement and big endian format
 //ObjectIdentifier -> this is to create a globally unqiue identifier like 1.2.840.113549.1.1.11,
 //SetOfVec -> set of unordered same type (tlv) sorted ,this is how der requries them to be
-
-use der::{Choice,Enumerated,Sequence,ValueOrd}
-// ValueOrd->how to put things in order,in what order
+use der::{Choice,Enumerated,Sequence,ValueOrd};
+// ValueOrd->how to put things in order,in what order;
 //Sequence tell how to place the field of struct after parsing ,squence keep everyhting serial ,one after another
 //Choice ->tell the value could be either of two
 //Enumerated ->tell the option could be any of that,with number u can assign it to them
@@ -40,7 +39,7 @@ pub struct AlgorithmIdentifier {
     pub parameters: Option<Any>,
 }
 
-#[derive(Clone,Copy,Debug,Eq,PartialEq,Sequence,ValueOrd)]
+#[derive(Clone,Debug,Eq,PartialEq,Sequence,ValueOrd)]
 pub struct field_type_and_value{
 	pub oid:ObjectIdentifier,
 	pub value:Any
@@ -59,7 +58,7 @@ pub type set_of_attribute =SetOfVec<field_type_and_value>;
 pub type rdn_sequence=Vec<set_of_attribute>;
 
 // now to define the time field there gonna be of two types 
-#[drive(Copy,Clone,Debug,PartialEq,Eq,Choice,ValueOrd)]
+#[derive(Copy,Clone,Debug,PartialEq,Eq,Choice,ValueOrd)]
 #[repr(u8)]
 pub enum Time
 {
@@ -100,7 +99,7 @@ pub struct Extension
     pub extn_value:OctetString
 }
 
-#[derive(Copy,Clone,Eq,PartialEq,Sequence,ValueOrd)]
+#[derive(Clone,Debug,Eq,PartialEq,Sequence)]
 pub struct tbsCertificate
 {
     #[asn1(context_specific = "0",default = "Default::default")]
@@ -121,7 +120,34 @@ pub struct tbsCertificate
 
     /// Your SANs live in here, under OID 2.5.29.17.
     #[asn1(context_specific = "3", tag_mode = "EXPLICIT", optional = "true")]
-    pub extensions: Option<Extensions>,
+    pub extensions: Option<Vec<Extension>>,
+}
+
+impl tbsCertificate
+{
+    pub fn new(
+        serial_number: Int,
+        signature: AlgorithmIdentifier,
+        issuer: rdn_sequence,
+        validity: Validity,
+        subject: rdn_sequence,
+        subject_public_key_info: SubjectPublicKeyInfo,
+        extensions: Option<Extensions>,
+    ) -> Self
+    {
+        tbsCertificate {
+            version: Version::V3,
+            serial_number,
+            signature,
+            issuer,
+            validity,
+            subject,
+            subject_public_key_info,
+            issuer_unique_id: None,
+            subject_unique_id: None,
+            extensions,
+        }
+    }
 }
 
 // certificate that needs to be signed and send to browser for pinning certificate
@@ -132,3 +158,4 @@ pub struct Certificate
     pub signature_algorithm:AlgorithmIdentifier,
     pub signature:BitString
 }
+pub type Extensions = Vec<Extension>;

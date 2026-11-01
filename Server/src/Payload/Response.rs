@@ -47,7 +47,7 @@ pub(crate) fn encode_fen(fen: &str) -> Vec<u8>
 			'/' => {},
 			'1'..='8' => i += c.to_digit(10).unwrap() as usize,
 			_ => {
-				let piece = match c.to_ascii_lowercase()
+				let piece: u8 = match c.to_ascii_lowercase()
 				{
 					'p' => 1,
 					'n' => 2,
@@ -57,7 +57,7 @@ pub(crate) fn encode_fen(fen: &str) -> Vec<u8>
 					'k' => 6,
 					_ => panic!("Invalid piece"),
 				};
-				let color = if c.is_ascii_uppercase() { 0 } else { 1 };
+				let color: u8 = if c.is_ascii_uppercase() { 0 } else { 1 };
 				squares[i] = (piece << 1) | color;
 				i += 1;
 			},
@@ -65,4 +65,3 @@ pub(crate) fn encode_fen(fen: &str) -> Vec<u8>
 	}
 	squares.chunks(2).map(|p| (p[0] << 4) | p[1]).collect()
 }
-

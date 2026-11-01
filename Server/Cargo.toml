@@ -10,3 +10,9 @@ wtransport = "0.6"
 async-trait = "0.1"
 anyhow = "1"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
+der = { version = "0.7", features = ["derive", "oid", "alloc", "pem"] }
+const-oid = { version = "0.9", features = ["db"] }
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core", "pkcs8", "pem"] }
+rand = "0.8"
+dotenv = "0.15.0"
