@@ -3,6 +3,7 @@ use ed25519_dalek::Signer;
 use der::Encode;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::OnceLock;
 pub mod parse_args;
 use parse_args::parse_args;
 mod connections;
@@ -13,7 +14,7 @@ mod Certificates;
 
 // Every connection, shared by all workers. One thread runs them all, so Rc<RefCell<..>> is enough.
 pub type Store = Rc<RefCell<connections::Connections>>;
-pub static CERT:OneLock<> = OneLock::new();
+pub static CERT:OnceLock<Certificates::certificate_asn::Certificate> = OnceLock::new();
 
 pub fn main()
 {
@@ -97,7 +98,7 @@ pub fn create_certificate()-> Result<Vec<u8>, Box<dyn std::error::Error>>
 	};
 
 	let cert = cert.to_der().unwrap();
-	let cert_pem = pem::encode(&pem::Pem::new("CERTIFICATE", cert.to_der().unwrap()));
+	let cert_pem = pem::encode(&pem::Pem::new("CERTIFICATE", cert.clone()));
     fs::write("certificate.pem", &cert_pem).expect("could not write certificate to file");
 
 	use sha2::{Digest, Sha256};
@@ -118,17 +119,13 @@ pub fn certificate_endpoint()
 		println!("data received from {}: {:?}",src,&buf[..len]);
 
 		//get the certificate and send it back to the client
-		let cert=create_certificate().expect("could not create certificate");
+		let cert=fs::read("certificate.pem").expect("could not read the certificate file, please ensure to generate the certificate first");
 		cert_endpoint.send_to(&cert,src).expect("could not send data");
 	}
 }
 
 pub async fn gateway_init()
 {
-	let certificate=fs::read("certificate.pem").expect("!!!CREATE THE CERTIFICATE FIRST!!!");
-	
-	let cert: crate::Certificates::certificate_asn::Certificate = der::Decode::from_der(&certificate).expect("could not decode certificate from the file ,please ensure its the correct one");
-
 	let private_key=fs::read_to_string("private_key.pem").expect("could not read the private key generte the private key first");
 
 	fs::read_to_string("public_key.pem").expect("could not read the public key generate the public key first");
