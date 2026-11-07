@@ -1,6 +1,6 @@
 use std::env;
 use anyhow::Result;
-use crate::Ceritficates::keys;
+use crate::Certificates::keys;
 pub fn parse_args() -> Result<()>
 {
 	let args: Vec<String> = env::args().collect();
@@ -21,6 +21,13 @@ pub fn parse_args() -> Result<()>
 				keys::save_keypair_to_files(&signing_key, &verifying_key).unwrap();
 				std::process::exit(0);
 			},
+			"--gen_cert" => {
+				println!("Generating certificate...");
+				let cert = crate::main::create_certificate().unwrap();
+				fs::write("cert.pem", cert).expect("Unable to write certificate to file,please ensure to generate the public key before hand");
+				println!("Certificate generated and saved to cert.pem");
+				std::process::exit(0);
+			}
 			_ => {}
 		}
 	}

@@ -16,3 +16,4 @@ sha2 = "0.10"
 ed25519-dalek = { version = "2", features = ["rand_core", "pkcs8", "pem"] }
 rand = "0.8"
 dotenv = "0.15.0"
+pem = "4.0.0"
