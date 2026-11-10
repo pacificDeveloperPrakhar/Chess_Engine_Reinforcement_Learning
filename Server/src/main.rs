@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 pub mod parse_args;
 use parse_args::parse_args;
+use tokio::task::JoinHandle;
 mod connections;
 mod log;
 mod worker;
@@ -15,6 +16,7 @@ mod Certificates;
 // Every connection, shared by all workers. One thread runs them all, so Rc<RefCell<..>> is enough.
 pub type Store = Rc<RefCell<connections::Connections>>;
 pub static CERT:OnceLock<Certificates::certificate_asn::Certificate> = OnceLock::new();
+pub static CONNECTIONS:OnceLock<std::sync::Mutex<Vec<JoinHandle<()>>>> = OnceLock::new();
 
 pub fn main()
 {
@@ -144,9 +146,12 @@ pub async fn gateway_init()
     let server = Endpoint::server(config).unwrap();
 
     loop {
-        let incoming = server.accept().await;
+        let incoming = server.accept().await; //will stop over here unless a connection comes
         let request = incoming.await.unwrap();
         let connection = request.accept().await.unwrap();
-        println!("client connected: {}", connection.remote_address());
+		let mut connection_handle =tokio::spawn(async move {
+			println!("client connected: {}", connection.remote_address());
+		});
+		CONNECTIONS.get_or_init(|| std::sync::Mutex::new(Vec::new())).lock().unwrap().push(connection_handle);
     }
 }
