@@ -147,7 +147,14 @@ pub async fn gateway_init()
 
     loop {
         let incoming = server.accept().await; //will stop over here unless a connection comes
-        let request = incoming.await.unwrap();
+        let request = match incoming.await
+		{
+			Ok(request) => request,
+			Err(e) => {
+				println!("Error accepting connection: {:?}", e);
+				continue;
+		}
+		};
         let connection = request.accept().await.unwrap();
 		let mut connection_handle =tokio::spawn(async move {
 			println!("client connected: {}", connection.remote_address());
