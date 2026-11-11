@@ -99,6 +99,17 @@ pub struct Extension
     pub extn_value:OctetString
 }
 
+/// SubjectAltName ::= SEQUENCE OF GeneralName   (extension OID 2.5.29.17)
+/// Lists the names this certificate is for. Here one dNSName and one iPAddress.
+/// GeneralName uses IMPLICIT context tags: [2] = dNSName, [7] = iPAddress.
+#[derive(Clone, Debug, Eq, PartialEq, Sequence)]
+pub struct SubjectAltName {
+    #[asn1(context_specific = "2", tag_mode = "IMPLICIT")]
+    pub dns_name: der::asn1::Ia5String,
+    #[asn1(context_specific = "7", tag_mode = "IMPLICIT")]
+    pub ip_address: OctetString,
+}
+
 #[derive(Clone,Debug,Eq,PartialEq,Sequence)]
 pub struct tbsCertificate
 {

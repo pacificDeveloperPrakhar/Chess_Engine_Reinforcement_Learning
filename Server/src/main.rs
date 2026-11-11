@@ -1,5 +1,5 @@
 use tokio::task::LocalSet;
-use ed25519_dalek::Signer;
+use p256::ecdsa::signature::Signer;
 use der::Encode;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -38,15 +38,25 @@ pub fn main()
 	// keep main alive until the certificate server thread finishes, otherwise the process exits immediately
 	certificate_server.join().unwrap();
 }
-use ed25519_dalek::{SigningKey, VerifyingKey};
-use ed25519_dalek::pkcs8::{DecodePrivateKey, DecodePublicKey};
+use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
+use p256::pkcs8::{DecodePrivateKey, DecodePublicKey};
 use std::fs;
+
+// OIDs (globally unique names) used in the certificate
+// ecdsa-with-SHA256: "signed with ECDSA, message hashed with SHA-256"
+const OID_ECDSA_WITH_SHA256: &str = "1.2.840.10045.4.3.2";
+// id-ecPublicKey: "this public key is an elliptic curve key"
+const OID_EC_PUBLIC_KEY: &str = "1.2.840.10045.2.1";
+// prime256v1: "the curve is P-256"
+const OID_P256_CURVE: &str = "1.2.840.10045.3.1.7";
+// subjectAltName: "the names (DNS names, IPs) this certificate is for"
+const OID_SUBJECT_ALT_NAME: &str = "2.5.29.17";
 
 pub fn create_certificate()-> Result<Vec<u8>, Box<dyn std::error::Error>>
 {
 
-	let pub_key=fs::read_to_string("public_key.pem").expect("generate the ed25519 keys first");
-	let priv_key=fs::read_to_string("private_key.pem").expect("generate the ed25519 keys first");
+	let pub_key=fs::read_to_string("public_key.pem").expect("generate the ECDSA P-256 keys first (--generate)");
+	let priv_key=fs::read_to_string("private_key.pem").expect("generate the ECDSA P-256 keys first (--generate)");
 	let signing_key= SigningKey::from_pkcs8_pem(&priv_key).unwrap();
 	let verifying_key= VerifyingKey::from_public_key_pem(&pub_key).unwrap();
 
@@ -57,8 +67,8 @@ pub fn create_certificate()-> Result<Vec<u8>, Box<dyn std::error::Error>>
         der::asn1::Int::new(&[0x01]).unwrap(),
         // signature (algorithm used to sign this certificate)
         Certificates::certificate_asn::AlgorithmIdentifier {
-			// algorithhm being used is the ed25519 algorithm which is represented by the OID
-            algorithm: der::asn1::ObjectIdentifier::new_unwrap("1.3.101.112"),
+			// ECDSA with SHA-256; RFC 5758 says parameters must be absent here
+            algorithm: der::asn1::ObjectIdentifier::new_unwrap(OID_ECDSA_WITH_SHA256),
             parameters: None,
         },
         // issuer (CN=localhost)
@@ -76,27 +86,43 @@ pub fn create_certificate()-> Result<Vec<u8>, Box<dyn std::error::Error>>
             oid: der::asn1::ObjectIdentifier::new_unwrap("2.5.4.3"),
             value: der::asn1::Any::encode_from(&der::asn1::Utf8StringRef::new("localhost").unwrap()).unwrap(),
         }]).unwrap()],
-        // subject_public_key_info (our Ed25519 public key)
+        // subject_public_key_info (our ECDSA P-256 public key)
         Certificates::certificate_asn::SubjectPublicKeyInfo {
             algorithm: Certificates::certificate_asn::AlgorithmIdentifier {
-                algorithm: der::asn1::ObjectIdentifier::new_unwrap("1.3.101.112"),
-                parameters: None,
+                // "elliptic curve key", and the parameter says which curve: P-256
+                algorithm: der::asn1::ObjectIdentifier::new_unwrap(OID_EC_PUBLIC_KEY),
+                parameters: Some(der::asn1::Any::encode_from(&der::asn1::ObjectIdentifier::new_unwrap(OID_P256_CURVE)).unwrap()),
             },
-            subject_public_key: der::asn1::BitString::from_bytes(verifying_key.as_bytes()).unwrap(),
+            // the public key is a point (x, y) on the curve, sent uncompressed:
+            // 0x04 + 32 bytes of x + 32 bytes of y = 65 bytes
+            subject_public_key: der::asn1::BitString::from_bytes(verifying_key.to_encoded_point(false).as_bytes()).unwrap(),
         },
-        // extensions
-        None,
+        // extensions: Chrome refuses a certificate with no extensions at all,
+        // so we add subjectAltName (the names this certificate is for)
+        Some(vec![Certificates::certificate_asn::Extension {
+            exten_id: der::asn1::ObjectIdentifier::new_unwrap(OID_SUBJECT_ALT_NAME),
+            critical: false,
+            // the extension's value is the DER bytes of SubjectAltName, wrapped in an OCTET STRING
+            extn_value: der::asn1::OctetString::new(
+                Certificates::certificate_asn::SubjectAltName {
+                    dns_name: der::asn1::Ia5String::new("localhost").unwrap(),
+                    ip_address: der::asn1::OctetString::new(vec![127, 0, 0, 1]).unwrap(),
+                }.to_der().unwrap(),
+            ).unwrap(),
+        }]),
     );
 
 	// now we gonna sign the tbs certificate with the signing key
-	let signature = signing_key.sign(&tbs.to_der().unwrap());
+	// sign() hashes the bytes with SHA-256 first, then signs the hash with ECDSA
+	let signature: Signature = signing_key.sign(&tbs.to_der().unwrap());
 	let cert = Certificates::certificate_asn::Certificate {
 		tbs_certificate: tbs,
 		signature_algorithm: Certificates::certificate_asn::AlgorithmIdentifier {
-			algorithm: der::asn1::ObjectIdentifier::new_unwrap("1.3.101.112"),
+			algorithm: der::asn1::ObjectIdentifier::new_unwrap(OID_ECDSA_WITH_SHA256),
 			parameters: None,
 		},
-		signature: der::asn1::BitString::from_bytes(&signature.to_bytes()).unwrap(),
+		// an ECDSA signature is two numbers (r, s); X.509 stores them DER-encoded
+		signature: der::asn1::BitString::from_bytes(signature.to_der().as_bytes()).unwrap(),
 	};
 
 	let cert = cert.to_der().unwrap();
@@ -131,7 +157,8 @@ pub async fn gateway_init()
 	let private_key=fs::read_to_string("private_key.pem").expect("could not read the private key generte the private key first");
 
 	fs::read_to_string("public_key.pem").expect("could not read the public key generate the public key first");
-	let signing_key= ed25519_dalek::SigningKey::from_pkcs8_pem(&private_key).expect("could not decode the private key from the file, please ensure its the correct one");	
+	// check the key file holds an ECDSA P-256 key before starting
+	let _signing_key= SigningKey::from_pkcs8_pem(&private_key).expect("could not decode the private key as ECDSA P-256, run --generate and --gen_cert again");
 
 	use wtransport::{Endpoint, Identity, ServerConfig};
 
@@ -158,6 +185,11 @@ pub async fn gateway_init()
         let connection = request.accept().await.unwrap();
 		let mut connection_handle =tokio::spawn(async move {
 			println!("client connected: {}", connection.remote_address());
+			let connection_close = connection.closed().await;
+			println!("client disconnected: {}", connection.remote_address());
+			println!("connection closed: {:?}", connection_close);
+			CONNECTIONS.get_or_init(|| std::sync::Mutex::new(Vec::new())).lock().unwrap().retain(|h| !h.is_finished());
+
 		});
 		CONNECTIONS.get_or_init(|| std::sync::Mutex::new(Vec::new())).lock().unwrap().push(connection_handle);
     }
