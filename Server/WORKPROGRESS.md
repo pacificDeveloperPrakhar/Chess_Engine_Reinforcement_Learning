@@ -2,7 +2,7 @@
 # How the Gateway, Manager Runtime, and Main Thread Work Together
 
 ## 1. The big picture
-![Manager Gateway Main Thread Interaction](file:/Documentation_Resources/manager_gateway_main_thread_interaction.svg)
+![Manager Gateway Main Thread Interaction](file:/home/prakharv/Desktop/Chess/chess_engine/Documentation_Resources/manager_gateway_main_thread_interaction.svg)
 
 - The **main thread** starts everything and then waits.
 - The **gateway** takes the client connections and turns the raw bytes into a request.
