@@ -18,7 +18,13 @@ mod Certificates;
 // Every connection, shared by all workers. One thread runs them all, so Rc<RefCell<..>> is enough.
 pub type Store = Rc<RefCell<connections::Connections>>;
 pub static CERT:OnceLock<Certificates::certificate_asn::Certificate> = OnceLock::new();
-pub static CONNECTIONS:OnceLock<std::sync::Mutex<Vec<JoinHandle<()>>>> = OnceLock::new();
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+pub static CONNECTIONS: OnceLock<std::sync::Mutex<HashMap<u64, JoinHandle<()>>>> = OnceLock::new();
+pub static MANAGERS: OnceLock<std::sync::Mutex<HashMap<u64, JoinHandle<()>>>> = OnceLock::new();
+static NEXT_ID_SERVER: AtomicU64 = AtomicU64::new(0);
+static NEXT_ID_CONNECTION: AtomicU64 = AtomicU64::new(9223372036854775808);
 
 pub fn main()
 {
@@ -190,14 +196,15 @@ pub async fn gateway_init()
 		}
 		};
         let connection: wtransport::Connection = request.accept().await.unwrap();
-		let mut connection_handle =tokio::spawn(async move {
-			println!("client connected: {}", connection.remote_address());
-			let connection_close = connection.closed().await;
-			println!("client disconnected: {}", connection.remote_address());
-			println!("connection closed: {:?}", connection_close);
-			CONNECTIONS.get_or_init(|| std::sync::Mutex::new(Vec::new())).lock().unwrap().retain(|h| !h.is_finished());
-
+		let id = NEXT_ID_CONNECTION.fetch_add(1, Ordering::Relaxed);
+		let connection_handle = tokio::spawn(async move {
+    		println!("client connected: {}", connection.remote_address());
+    		let connection_close = connection.closed().await;
+    		println!("client disconnected: {}", connection.remote_address());
+    		println!("connection closed: {:?}", connection_close);
+    		// remove this connection's own entry when it closes
+    		CONNECTIONS.get_or_init(|| std::sync::Mutex::new(HashMap::new())).lock().unwrap().remove(&id);
 		});
-		CONNECTIONS.get_or_init(|| std::sync::Mutex::new(Vec::new())).lock().unwrap().push(connection_handle);
-    }
+		CONNECTIONS.get_or_init(|| std::sync::Mutex::new(HashMap::new())).lock().unwrap().insert(id, connection_handle);
+    	}
 }
