@@ -4,7 +4,9 @@ use der::Encode;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::OnceLock;
+mod ManagerRuntime;
 pub mod parse_args;
+pub mod Utility;
 use parse_args::parse_args;
 use tokio::task::JoinHandle;
 mod connections;
@@ -33,10 +35,15 @@ pub fn main()
 		let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 		LocalSet::new().block_on(&rt,gateway_init());
 	}).unwrap();
+	// ======================================================SPAWNING THE MANAGER=============================================================================
+	// Creating the Manager runtime for the server to handle the request from the client
+	let manager_rt = crate::ManagerRuntime::manager_init();
+	// ========================================================================================================================================================
 	// keep main alive until the gateway thread finishes, otherwise the process exits immediately
 	thread.join().unwrap();
 	// keep main alive until the certificate server thread finishes, otherwise the process exits immediately
 	certificate_server.join().unwrap();
+	// dont have to do the same for the manager runtime as we did the same for the thread of the certificate server and the gateway server as the manager runtime is running in the background and will be terminated when the main thread exits. 
 }
 use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
 use p256::pkcs8::{DecodePrivateKey, DecodePublicKey};
@@ -182,7 +189,7 @@ pub async fn gateway_init()
 				continue;
 		}
 		};
-        let connection = request.accept().await.unwrap();
+        let connection: wtransport::Connection = request.accept().await.unwrap();
 		let mut connection_handle =tokio::spawn(async move {
 			println!("client connected: {}", connection.remote_address());
 			let connection_close = connection.closed().await;
