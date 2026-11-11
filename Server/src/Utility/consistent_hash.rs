@@ -1,13 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
-use tokio::task::JoinHandle;
-
-pub struct Manager
-{
-    pub id: u64,
-    pub ip: String,
-    pub port: u16,
-}
+use crate::ManagerRuntime::ManagerEntry;
 
 pub struct ConsistentHashRing
 {
@@ -15,7 +8,7 @@ pub struct ConsistentHashRing
     ring: BTreeMap<u64, u64>,
     duplicacy_factor: u64,
     // manager id -> the task running that manager
-    managers: &'static Mutex<HashMap<u64, JoinHandle<()>>>,
+    managers: &'static Mutex<HashMap<u64, ManagerEntry>>,
 }
 
 impl ConsistentHashRing
@@ -32,11 +25,11 @@ impl ConsistentHashRing
         }
     }
 
-    pub fn add_manager(&mut self, manager: Manager)
+    pub fn add_manager(&mut self, id:u64)
     {
         for i in 0..self.duplicacy_factor {
-            let hash = self.hash(&format!("{}-{}", manager.id, i));
-            self.ring.insert(hash, manager.id);
+            let hash = self.hash(&format!("{}-{}", id, i));
+            self.ring.insert(hash, id);
         }
     }
 
