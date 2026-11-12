@@ -25,8 +25,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 // (a wtransport Connection is a cheap handle, so other tasks can clone it and send on it)
 pub type ConnectionEntry = (JoinHandle<()>, wtransport::Connection);
 pub static CONNECTIONS: OnceLock<std::sync::Mutex<HashMap<u64, ConnectionEntry>>> = OnceLock::new();
-// handle to the gateway runtime, so tasks on other runtimes (the managers) can spawn work on it
-pub static GATEWAY_RT: OnceLock<tokio::runtime::Handle> = OnceLock::new();
 pub static MANAGERS: OnceLock<std::sync::Mutex<HashMap<u64, ManagerRuntime::ManagerEntry>>> = OnceLock::new();
 pub static CONSISTENT_HASH: OnceLock<std::sync::Mutex<Utility::consistent_hash::ConsistentHashRing>> = OnceLock::new();
 static NEXT_ID_SERVER: AtomicU64 = AtomicU64::new(0);
@@ -46,7 +44,6 @@ pub fn main()
 		//enable all means to be able to use all sort of networking and other features that tokio provides
 		let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
 		// publish the handle before any client connects, so managers can find it
-		GATEWAY_RT.set(rt.handle().clone()).unwrap();
 		LocalSet::new().block_on(&rt,gateway_init());
 	}).unwrap();
 	// ======================================================SPAWNING THE MANAGER=============================================================================
@@ -54,10 +51,10 @@ pub fn main()
 	let manager_rt = crate::ManagerRuntime::manager_init();
 	for i in 0..std::env::var("INITIAL_MANAGERS_TASK_COUNT").expect("Add INITIAL_MANAGERS_TASK_COUNT in a .env file").parse::<u64>().expect("INITIAL_MANAGERS_TASK_COUNT should be a number")
 	{
-				let id =NEXT_ID_SERVER.fetch_add(1,Ordering::Relaxed);
+		let id =NEXT_ID_SERVER.fetch_add(1,Ordering::Relaxed);
 		CONSISTENT_HASH.get_or_init(|| std::sync::Mutex::new(Utility::consistent_hash::ConsistentHashRing::new(100)))
 		.lock().unwrap().add_manager(id);
-			crate::ManagerRuntime::add_manager(&manager_rt, id);
+		crate::ManagerRuntime::add_manager(&manager_rt, id,rt.clone());
 	}
 	// ========================================================================================================================================================
 	// keep main alive until the gateway thread finishes, otherwise the process exits immediately

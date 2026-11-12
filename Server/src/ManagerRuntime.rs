@@ -23,7 +23,7 @@ pub fn manager_init()-> tokio::runtime::Runtime{
 	return runtime;
 }
 
-pub fn create_manager(rt: &tokio::runtime::Runtime) -> ManagerEntry {
+pub fn create_manager(rt: &tokio::runtime::Runtime,gateway_rt:tokio::runtime::Runtime) -> ManagerEntry {
 	// buffer size is of 32, so that the manager can hold up to 32 waiting jobs before the sender has to wait.
 	let (tx, mut rx) = mpsc::channel::<Job>(32);
 	let manager_handle: JoinHandle<()> = rt.spawn(async move {
@@ -35,10 +35,9 @@ pub fn create_manager(rt: &tokio::runtime::Runtime) -> ManagerEntry {
 				let _ = reply_tx.send(response);
 
 				// hand a task to the gateway runtime: it looks the connection up by id and messages the client
-				match crate::GATEWAY_RT.get() {
-					Some(gateway) => { gateway.spawn(notify_client(connection_id)); }
-					None => println!("gateway runtime not started; cannot notify {}", connection_id),
-				}
+				gateway_rt.spawn(async move {
+					notify_client(connection_id).await;
+				});
 			});
 		}
 	});
@@ -77,8 +76,8 @@ async fn notify_client(connection_id: u64) {
 }
 
 // creates a manager and stores its handle and channel in MANAGERS under its id
-pub fn add_manager(rt: &tokio::runtime::Runtime, manager_id: u64) {
-	let entry: ManagerEntry = create_manager(rt);
+pub fn add_manager(rt: &tokio::runtime::Runtime, manager_id: u64, gateway_rt: tokio::runtime::Runtime) {
+	let entry: ManagerEntry = create_manager(rt,gateway_rt);
 	crate::MANAGERS
 		.get_or_init(|| Mutex::new(HashMap::new()))
 		.lock()
