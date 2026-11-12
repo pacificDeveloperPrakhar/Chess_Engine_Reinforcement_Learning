@@ -27,6 +27,9 @@ pub type ConnectionEntry = (JoinHandle<()>, wtransport::Connection);
 pub static CONNECTIONS: OnceLock<std::sync::Mutex<HashMap<u64, ConnectionEntry>>> = OnceLock::new();
 pub static MANAGERS: OnceLock<std::sync::Mutex<HashMap<u64, ManagerRuntime::ManagerEntry>>> = OnceLock::new();
 pub static CONSISTENT_HASH: OnceLock<std::sync::Mutex<Utility::consistent_hash::ConsistentHashRing>> = OnceLock::new();
+// handle to the gateway runtime: set once in main, then any thread can read it and spawn tasks on the gateway.
+// No Mutex needed: it never changes after it is set, and Handle::spawn only needs a shared reference (&self).
+pub static GATEWAY: OnceLock<tokio::runtime::Handle> = OnceLock::new();
 static NEXT_ID_SERVER: AtomicU64 = AtomicU64::new(0);
 static NEXT_ID_CONNECTION: AtomicU64 = AtomicU64::new(9223372036854775808);
 
@@ -38,12 +41,15 @@ pub fn main()
 	let certificate_server = std::thread::Builder::new().name(String::from("certificate_endpoint")).spawn(|| {
 		certificate_endpoint();
 	}).unwrap();
+	// this will create the runtime for the gateway
+	//enable all means to be able to use all sort of networking and other features that tokio provides
+	// it is built here in main (not inside the thread) so its handle can be published before any manager starts
+	let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+	// publish the handle before any manager or client exists, so GATEWAY.get() never returns None
+	GATEWAY.set(rt.handle().clone()).expect("GATEWAY was already set");
 	// creating the seperate 1:1 thread then there we will create the multiple task to handle the conncetion from the client
-	let thread = std::thread::Builder::new().name(String::from("gateway")).spawn(|| {
-		// this will create the runtime for the gateway
-		//enable all means to be able to use all sort of networking and other features that tokio provides
-		let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-		// publish the handle before any client connects, so managers can find it
+	// `move` hands the runtime itself to the gateway thread; the thread drives it with block_on
+	let thread = std::thread::Builder::new().name(String::from("gateway")).spawn(move || {
 		LocalSet::new().block_on(&rt,gateway_init());
 	}).unwrap();
 	// ======================================================SPAWNING THE MANAGER=============================================================================
@@ -54,7 +60,7 @@ pub fn main()
 		let id =NEXT_ID_SERVER.fetch_add(1,Ordering::Relaxed);
 		CONSISTENT_HASH.get_or_init(|| std::sync::Mutex::new(Utility::consistent_hash::ConsistentHashRing::new(100)))
 		.lock().unwrap().add_manager(id);
-		crate::ManagerRuntime::add_manager(&manager_rt, id,rt.clone());
+		crate::ManagerRuntime::add_manager(&manager_rt, id);
 	}
 	// ========================================================================================================================================================
 	// keep main alive until the gateway thread finishes, otherwise the process exits immediately
