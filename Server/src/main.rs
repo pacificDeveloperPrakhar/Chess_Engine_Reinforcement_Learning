@@ -3,7 +3,7 @@ use p256::ecdsa::signature::Signer;
 use der::Encode;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 mod ManagerRuntime;
 pub mod parse_args;
 pub mod Utility;
@@ -27,9 +27,14 @@ pub type ConnectionEntry = (JoinHandle<()>, wtransport::Connection);
 pub static CONNECTIONS: OnceLock<std::sync::Mutex<HashMap<u64, ConnectionEntry>>> = OnceLock::new();
 pub static MANAGERS: OnceLock<std::sync::Mutex<HashMap<u64, ManagerRuntime::ManagerEntry>>> = OnceLock::new();
 pub static CONSISTENT_HASH: OnceLock<std::sync::Mutex<Utility::consistent_hash::ConsistentHashRing>> = OnceLock::new();
-// handle to the gateway runtime: set once in main, then any thread can read it and spawn tasks on the gateway.
-// No Mutex needed: it never changes after it is set, and Handle::spawn only needs a shared reference (&self).
-pub static GATEWAY: OnceLock<tokio::runtime::Handle> = OnceLock::new();
+// the gateway runtime itself. LazyLock builds it the first time anyone touches it;
+// main touches it first (LazyLock::force), so it is always built on the main thread.
+// After that any thread can read it and spawn tasks on it. No Mutex needed: it never changes,
+// and Runtime::spawn / block_on only need a shared reference (&self).
+// enable_all means to be able to use all sort of networking and other features that tokio provides
+pub static GATEWAY_RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
+	tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap()
+});
 static NEXT_ID_SERVER: AtomicU64 = AtomicU64::new(0);
 static NEXT_ID_CONNECTION: AtomicU64 = AtomicU64::new(9223372036854775808);
 
@@ -37,20 +42,17 @@ pub fn main()
 {
 	dotenv::dotenv().ok();
 	parse_args().unwrap();
+	// build the gateway runtime NOW, on the main thread, before any other thread exists.
+	// Without this, whichever thread touched GATEWAY_RT first would build it.
+	LazyLock::force(&GATEWAY_RT);
 	// endpoint for getting the certificate from the server and send it to the client
 	let certificate_server = std::thread::Builder::new().name(String::from("certificate_endpoint")).spawn(|| {
 		certificate_endpoint();
 	}).unwrap();
-	// this will create the runtime for the gateway
-	//enable all means to be able to use all sort of networking and other features that tokio provides
-	// it is built here in main (not inside the thread) so its handle can be published before any manager starts
-	let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-	// publish the handle before any manager or client exists, so GATEWAY.get() never returns None
-	GATEWAY.set(rt.handle().clone()).expect("GATEWAY was already set");
 	// creating the seperate 1:1 thread then there we will create the multiple task to handle the conncetion from the client
-	// `move` hands the runtime itself to the gateway thread; the thread drives it with block_on
-	let thread = std::thread::Builder::new().name(String::from("gateway")).spawn(move || {
-		LocalSet::new().block_on(&rt,gateway_init());
+	// the runtime is a static, so the thread just borrows it (no move needed); this thread drives it with block_on
+	let thread = std::thread::Builder::new().name(String::from("gateway")).spawn(|| {
+		LocalSet::new().block_on(&GATEWAY_RT, gateway_init());
 	}).unwrap();
 	// ======================================================SPAWNING THE MANAGER=============================================================================
 	// Creating the Manager runtime for the server to handle the request from the client

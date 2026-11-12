@@ -35,9 +35,9 @@ pub fn create_manager(rt: &tokio::runtime::Runtime) -> ManagerEntry {
 				let _ = reply_tx.send(response);
 
 				// hand a task to the gateway runtime: it looks the connection up by id and messages the client.
-				// GATEWAY.get() gives a &'static Handle (a shared reference, no clone needed);
-				// main sets it before any manager exists, so it is always there.
-				crate::GATEWAY.get().expect("GATEWAY handle not set").spawn(notify_client(connection_id));
+				// GATEWAY_RT derefs to a &'static Runtime (a shared reference, no clone needed);
+				// main already built it with LazyLock::force, so this never builds a new one.
+				crate::GATEWAY_RT.spawn(notify_client(connection_id));
 			});
 		}
 	});
