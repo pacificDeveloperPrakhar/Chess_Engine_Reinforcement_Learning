@@ -21,7 +21,12 @@ pub static CERT:OnceLock<Certificates::certificate_asn::Certificate> = OnceLock:
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub static CONNECTIONS: OnceLock<std::sync::Mutex<HashMap<u64, JoinHandle<()>>>> = OnceLock::new();
+// what CONNECTIONS stores for each client: the task watching it, and the connection itself
+// (a wtransport Connection is a cheap handle, so other tasks can clone it and send on it)
+pub type ConnectionEntry = (JoinHandle<()>, wtransport::Connection);
+pub static CONNECTIONS: OnceLock<std::sync::Mutex<HashMap<u64, ConnectionEntry>>> = OnceLock::new();
+// handle to the gateway runtime, so tasks on other runtimes (the managers) can spawn work on it
+pub static GATEWAY_RT: OnceLock<tokio::runtime::Handle> = OnceLock::new();
 pub static MANAGERS: OnceLock<std::sync::Mutex<HashMap<u64, ManagerRuntime::ManagerEntry>>> = OnceLock::new();
 pub static CONSISTENT_HASH: OnceLock<std::sync::Mutex<Utility::consistent_hash::ConsistentHashRing>> = OnceLock::new();
 static NEXT_ID_SERVER: AtomicU64 = AtomicU64::new(0);
@@ -40,6 +45,8 @@ pub fn main()
 		// this will create the runtime for the gateway
 		//enable all means to be able to use all sort of networking and other features that tokio provides
 		let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+		// publish the handle before any client connects, so managers can find it
+		GATEWAY_RT.set(rt.handle().clone()).unwrap();
 		LocalSet::new().block_on(&rt,gateway_init());
 	}).unwrap();
 	// ======================================================SPAWNING THE MANAGER=============================================================================
@@ -207,33 +214,48 @@ pub async fn gateway_init()
 		let id = NEXT_ID_CONNECTION.fetch_add(1, Ordering::Relaxed);
 		// wait for the payload and then handle that payload in a separate task
 		let listener_conn = connection.clone();
+		let stored_conn = connection.clone();
 		let req_handle = tokio::spawn(async move {
-			loop
-			{
 				while let Ok((mut send, mut recv)) = listener_conn.accept_bi().await {
             	// each stream gets its own task, so one slow request doesn't block the rest
             	tokio::spawn(async move {
-                	// read the request until the client closes its side
-                	let mut payload = Vec::new();
-                	let mut chunk = [0u8; 1024];
-                	while let Ok(Some(n)) = recv.read(&mut chunk).await {
-                    	payload.extend_from_slice(&chunk[..n]);
+                	// the client sends one frame: [length: 1 byte][payload: length bytes]
+                	// and keeps its side open until it has the reply, so read by length, not until the end.
+                	let mut len = [0u8; 1];
+                	if recv.read_exact(&mut len).await.is_err() {
+                    	return; // stream closed before a request arrived
                 	}
-					Utility::request_handler(&payload, id).await;
-                	send.finish().await.unwrap();
+                	let mut payload = vec![0u8; len[0] as usize];
+                	if recv.read_exact(&mut payload).await.is_err() {
+                    	return; // stream closed in the middle of the request
+                	}
+
+					let response = Utility::request_handler(&payload, id).await;
+
+                	// reply in the same format: [length][payload]. An empty payload means an error.
+                	let mut frame = Vec::with_capacity(1 + response.len());
+                	frame.push(response.len() as u8);
+                	frame.extend_from_slice(&response);
+                	if let Err(e) = send.write_all(&frame).await {
+                    	println!("could not reply on stream: {:?}", e);
+                    	return;
+                	}
+                	// a client that stops reading early is normal, so log it instead of panicking
+                	if let Err(e) = send.finish().await {
+                    	println!("client stopped reading early: {:?}", e);
+                	}
             });
 			}
-			}
 		});
-		
 		let connection_handle = tokio::spawn(async move {
     		println!("client connected: {}", connection.remote_address());
     		let connection_close = connection.closed().await;
+			req_handle.abort();
     		println!("client disconnected: {}", connection.remote_address());
     		println!("connection closed: {:?}", connection_close);
     		// remove this connection's own entry when it closes
     		CONNECTIONS.get_or_init(|| std::sync::Mutex::new(HashMap::new())).lock().unwrap().remove(&id);
 		});
-		CONNECTIONS.get_or_init(|| std::sync::Mutex::new(HashMap::new())).lock().unwrap().insert(id, connection_handle);
+		CONNECTIONS.get_or_init(|| std::sync::Mutex::new(HashMap::new())).lock().unwrap().insert(id, (connection_handle, stored_conn));
     	}
 }
