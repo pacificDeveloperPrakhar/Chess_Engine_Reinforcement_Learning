@@ -4,6 +4,7 @@ use der::Encode;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{LazyLock, OnceLock};
+use chess_engine::structures::game_session::GameSession;
 mod ManagerRuntime;
 pub mod parse_args;
 pub mod Utility;
@@ -20,7 +21,7 @@ pub type Store = Rc<RefCell<connections::Connections>>;
 pub static CERT:OnceLock<Certificates::certificate_asn::Certificate> = OnceLock::new();
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-
+use std::sync::Mutex;
 // what CONNECTIONS stores for each client: the task watching it, and the connection itself
 // (a wtransport Connection is a cheap handle, so other tasks can clone it and send on it)
 pub type ConnectionEntry = (JoinHandle<()>, wtransport::Connection);
@@ -37,7 +38,7 @@ pub static GATEWAY_RT: LazyLock<tokio::runtime::Runtime> = LazyLock::new(|| {
 });
 static NEXT_ID_SERVER: AtomicU64 = AtomicU64::new(0);
 static NEXT_ID_CONNECTION: AtomicU64 = AtomicU64::new(9223372036854775808);
-
+static STATES:LazyLock<HashMap<u64,Mutex<GameSession>>> = LazyLock::new(|| HashMap::new());
 pub fn main()
 {
 	dotenv::dotenv().ok();
@@ -45,6 +46,8 @@ pub fn main()
 	// build the gateway runtime NOW, on the main thread, before any other thread exists.
 	// Without this, whichever thread touched GATEWAY_RT first would build it.
 	LazyLock::force(&GATEWAY_RT);
+	// States need to be forcefully be created
+	LazyLock::force(&STATES);
 	// endpoint for getting the certificate from the server and send it to the client
 	let certificate_server = std::thread::Builder::new().name(String::from("certificate_endpoint")).spawn(|| {
 		certificate_endpoint();
@@ -220,36 +223,16 @@ pub async fn gateway_init()
 		// wait for the payload and then handle that payload in a separate task
 		let listener_conn = connection.clone();
 		let stored_conn = connection.clone();
+		// read every datagram the client sends and hand it to the matching manager
 		let req_handle = tokio::spawn(async move {
-				while let Ok((mut send, mut recv)) = listener_conn.accept_bi().await {
-            	// each stream gets its own task, so one slow request doesn't block the rest
-            	tokio::spawn(async move {
-                	// the client sends one frame: [length: 1 byte][payload: length bytes]
-                	// and keeps its side open until it has the reply, so read by length, not until the end.
-                	let mut len = [0u8; 1];
-                	if recv.read_exact(&mut len).await.is_err() {
-                    	return; // stream closed before a request arrived
-                	}
-                	let mut payload = vec![0u8; len[0] as usize];
-                	if recv.read_exact(&mut payload).await.is_err() {
-                    	return; // stream closed in the middle of the request
-                	}
-
-					let response = Utility::request_handler(&payload, id).await;
-
-                	// reply in the same format: [length][payload]. An empty payload means an error.
-                	let mut frame = Vec::with_capacity(1 + response.len());
-                	frame.push(response.len() as u8);
-                	frame.extend_from_slice(&response);
-                	if let Err(e) = send.write_all(&frame).await {
-                    	println!("could not reply on stream: {:?}", e);
-                    	return;
-                	}
-                	// a client that stops reading early is normal, so log it instead of panicking
-                	if let Err(e) = send.finish().await {
-                    	println!("client stopped reading early: {:?}", e);
-                	}
-            });
+			loop {
+				let datagram = match listener_conn.receive_datagram().await {
+					Ok(datagram) => datagram,
+					Err(_) => break, // connection closed
+				};
+				if let Err(e) = Utility::request_handle(id, datagram.payload().to_vec()).await {
+					println!("could not handle request from {}: {:?}", id, e);
+				}
 			}
 		});
 		let connection_handle = tokio::spawn(async move {

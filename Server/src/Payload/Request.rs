@@ -42,7 +42,7 @@ impl Request
 	}
 }
 
-pub(crate) fn decode_fen(data: &[u8]) -> Option<String>
+pub fn decode_fen(data: &[u8]) -> Option<String>
 {
 	let mut fen = String::new();
 	for rank in 0..8

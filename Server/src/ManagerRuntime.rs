@@ -1,17 +1,16 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tokio::runtime::Builder;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use crate::Payload::Request::Request;
 use crate::Payload::Response::Response;
+use crate::Payload::send_resp;
+use crate::Payload::Payload;
 
-// one unit of work for a manager: which connection asked, the request,
-// and a one-time channel to send the answer back on
-pub type Job = (u64, Request, oneshot::Sender<Response>);
 
 // what MANAGERS stores for each manager: its task handle and the channel to send it jobs
-pub type ManagerEntry = (JoinHandle<()>, mpsc::Sender<Job>);
+pub type ManagerEntry = (JoinHandle<()>, mpsc::Sender<Payload>);
 
 pub fn manager_init()-> tokio::runtime::Runtime{
     let runtime = Builder::new_multi_thread()
@@ -25,20 +24,27 @@ pub fn manager_init()-> tokio::runtime::Runtime{
 
 pub fn create_manager(rt: &tokio::runtime::Runtime) -> ManagerEntry {
 	// buffer size is of 32, so that the manager can hold up to 32 waiting jobs before the sender has to wait.
-	let (tx, mut rx) = mpsc::channel::<Job>(32);
+	let (tx, mut rx) = mpsc::channel::<Payload>(32);
 	let manager_handle: JoinHandle<()> = rt.spawn(async move {
-		// ends when every sender is dropped, instead of spinning forever
-		while let Some((connection_id, request, reply_tx)) = rx.recv().await {
-			tokio::spawn(async move {
-				let response = handle_request(request);
-				// the receiver may already be gone (client left); nothing to do then
-				let _ = reply_tx.send(response);
-
-				// hand a task to the gateway runtime: it looks the connection up by id and messages the client.
-				// GATEWAY_RT derefs to a &'static Runtime (a shared reference, no clone needed);
-				// main already built it with LazyLock::force, so this never builds a new one.
-				crate::GATEWAY_RT.spawn(notify_client(connection_id));
-			});
+		while let Some(pd)=rx.recv().await {
+			match pd.route
+			{
+				route if route < (1 << 7)=>{// handle the req
+				 //encode the data
+				 let mut req:Request=Request::decode(&pd.data).unwrap();
+				 match req
+				 {
+					_=>{
+						// for now send any data
+						if let Err(e) = send_resp(pd.id,b"default response is sending out , will make it with status code later").await
+						{
+							println!("could not send response to {}: {:?}", pd.id, e);
+						}
+					}
+				 }
+				},
+				_=>panic!("payload route has msb not equal to 0")
+			}
 		}
 	});
 

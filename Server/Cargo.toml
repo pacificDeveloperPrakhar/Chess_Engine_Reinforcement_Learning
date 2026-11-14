@@ -17,3 +17,4 @@ p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
 rand = "0.8"
 dotenv = "0.15.0"
 pem = "4.0.0"
+chess_engine = { path = ".." }

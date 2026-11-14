@@ -5,8 +5,8 @@ use crate::Payload::Request::decode_fen;
 pub enum Response
 {
 	Fen(String),//need to convert to 4*8*8 bytes
-	Move(Move),// need to convert to 8+8+1 byte
-	Select(u64), //need to convert to// 8 byte
+	Move(Move),// need to convert to 8+8+1 bytes
+	Select(u64), //need to convert to// 8 bytes
 }
 
 impl Response

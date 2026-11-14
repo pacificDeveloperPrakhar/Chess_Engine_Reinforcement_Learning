@@ -3,47 +3,36 @@ pub mod consistent_hash;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use tokio::sync::oneshot;
-use crate::{CONSISTENT_HASH, MANAGERS};
+use crate::{CONNECTIONS, CONSISTENT_HASH, MANAGERS};
+use crate::Payload::Payload;
 use crate::Payload::Request::Request;
 
-// sends one request from a connection to the manager that owns that connection,
-// waits for the answer, and returns it as bytes (Response::encode).
-// An empty Vec means "could not handle it", the same as worker.rs, and the client shows that as an error.
-pub async fn request_handler(payload: &[u8], connection_id: u64) -> Vec<u8>
+pub async fn request_handle(conn_id:u64,buff:Vec<u8>)->anyhow::Result<()>
 {
-	// 1. decode the bytes into a request
-	let Some(request) = Request::decode(payload) else {
-		println!("undecodable payload ({} bytes): {:02x?}", payload.len(), payload);
-		return Vec::new();
+	//check for the connection in the connection hash map
+	// borrow the entry with &[] (panics if missing); the block drops the lock before any .await below
+	{
+		let connections = CONNECTIONS.get().unwrap().lock().unwrap();
+		let _entry = &connections[&conn_id];
+	}
+	let data=&buff[0..buff.len()-1];
+	let route=buff[buff.len()-1];
+	// find the id of the manager using the connection id
+	let manager_id = CONSISTENT_HASH.get().unwrap().lock().unwrap().get_manager_for_connection(conn_id).unwrap();
+	//form the payload
+	let pd = Payload
+	{
+		id:conn_id,
+		data:data.to_vec(),
+		route
 	};
-
-	// 2. ask the ring which manager owns this connection
-	let manager_id = CONSISTENT_HASH
-		.get_or_init(|| Mutex::new(consistent_hash::ConsistentHashRing::new(100)))
-		.lock().unwrap()
-		.get_manager_for_connection(connection_id);
-	let Some(manager_id) = manager_id else {
-		println!("no manager on the ring yet");
-		return Vec::new();
-	};
-
-	// 3. copy the manager's sender out of the map, then release the lock before awaiting
+	// get the manager for the given id, cloning its sender so the lock is released before the .await
 	let tx = {
-		let managers = MANAGERS.get_or_init(|| Mutex::new(HashMap::new())).lock().unwrap();
-		managers.get(&manager_id).map(|(_, tx)| tx.clone())
+		let managers = MANAGERS.get().unwrap().lock().unwrap();
+		managers[&manager_id].1.clone()
 	};
-	let Some(tx) = tx else {
-		println!("manager {} is on the ring but not in MANAGERS", manager_id);
-		return Vec::new();
-	};
-
-	// 4. send the request with a one-time reply channel, then wait for the manager's answer
-	let (reply_tx, reply_rx) = oneshot::channel();
-	if tx.send((connection_id, request, reply_tx)).await.is_err() {
-		return Vec::new(); // manager task has stopped
-	}
-	match reply_rx.await {
-		Ok(response) => response.encode(),
-		Err(_) => Vec::new(), // manager dropped the job without answering
-	}
+	println!("processing the request");
+	// send the payload object to the specific manager
+	tx.send(pd).await?;
+	return Ok(())
 }
