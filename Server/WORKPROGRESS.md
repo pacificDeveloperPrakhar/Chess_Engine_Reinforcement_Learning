@@ -53,3 +53,6 @@
 - The gateway tracks every open connection.
 - When a client disconnects, the gateway cleans up its connection.
 - Requests from one connection are handled in order.
+
+## Notes
+- 2026-11-16 — [Server Connection Flow: Certificate, Gateway and Manager Runtime](docs/2026-11-16-server-connection-flow-certificate-gateway-manager.md) ([PDF](docs/2026-11-16-server-connection-flow-certificate-gateway-manager.pdf)) — How a client connects, from certificate pinning to the manager reply, with doc-checked corrections

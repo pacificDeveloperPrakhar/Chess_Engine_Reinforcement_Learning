@@ -5,7 +5,8 @@ pub struct Payload
 {
 	pub id:u64,
 	pub data:Vec<u8>,
-	pub route:u8
+	pub route:u8,
+	pub send:Option<wtransport::SendStream>
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -42,20 +43,14 @@ impl Move
 	}
 }
 
-pub async fn  send_resp(conn_id:u64,resp:&[u8])->anyhow::Result<()>
+pub async fn  send_resp(send:&mut wtransport::SendStream,resp:&[u8])->anyhow::Result<()>
 {
-	//get the connection
-	let connections = crate::CONNECTIONS.get().unwrap().lock().unwrap();
-	let (_,connection) = connections.get(&conn_id).expect(&format!("no connection with ID : {}",conn_id));
-	connection.send_datagram(resp)?;
+	send.write_all(&[resp.len() as u8]).await?;
+	send.write_all(resp).await?;
 	Ok(())
 }
-pub async fn  send_encode_resp(conn_id:u64,resp:Response::Response)->anyhow::Result<()>
+pub async fn  send_encode_resp(send:&mut wtransport::SendStream,conn_id:u64,resp:Response::Response)->anyhow::Result<()>
 {
- //get the connection 
- let connections = crate::CONNECTIONS.get().unwrap().lock().unwrap();
- let (_,connection) = connections.get(&conn_id).expect(&format!("no connection with ID : {}",conn_id));
-
  //encode the response
  let data = resp.encode();
  let route = match resp
@@ -64,7 +59,6 @@ pub async fn  send_encode_resp(conn_id:u64,resp:Response::Response)->anyhow::Res
 	Response::Response::Move(_) =>1,
 	Response::Response::Select(_)=>2
  };
- // set the top bit (2^7 = 128) to mark this payload as a response
  let route: u8 = route | (1 << 7);
  //form the payload 
  let pd=Payload
@@ -72,10 +66,12 @@ pub async fn  send_encode_resp(conn_id:u64,resp:Response::Response)->anyhow::Res
 	id:conn_id,
 	data,
 	route,
+	send:None,
  };
 
  let mut frame = vec![route];
  frame.extend_from_slice(&pd.data);
- connection.send_datagram(frame)?;
+ send.write_all(&[frame.len() as u8]).await?;
+ send.write_all(&frame).await?;
  Ok(())
 }

@@ -7,10 +7,9 @@ use crate::{CONNECTIONS, CONSISTENT_HASH, MANAGERS};
 use crate::Payload::Payload;
 use crate::Payload::Request::Request;
 
-pub async fn request_handle(conn_id:u64,buff:Vec<u8>)->anyhow::Result<()>
+pub async fn request_handle(conn_id:u64,buff:Vec<u8>,send:wtransport::SendStream)->anyhow::Result<()>
 {
 	//check for the connection in the connection hash map
-	// borrow the entry with &[] (panics if missing); the block drops the lock before any .await below
 	{
 		let connections = CONNECTIONS.get().unwrap().lock().unwrap();
 		let _entry = &connections[&conn_id];
@@ -24,9 +23,10 @@ pub async fn request_handle(conn_id:u64,buff:Vec<u8>)->anyhow::Result<()>
 	{
 		id:conn_id,
 		data:data.to_vec(),
-		route
+		route,
+		send:Some(send)
 	};
-	// get the manager for the given id, cloning its sender so the lock is released before the .await
+	// get the manager for the given id
 	let tx = {
 		let managers = MANAGERS.get().unwrap().lock().unwrap();
 		managers[&manager_id].1.clone()

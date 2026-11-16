@@ -223,16 +223,25 @@ pub async fn gateway_init()
 		// wait for the payload and then handle that payload in a separate task
 		let listener_conn = connection.clone();
 		let stored_conn = connection.clone();
-		// read every datagram the client sends and hand it to the matching manager
 		let req_handle = tokio::spawn(async move {
 			loop {
-				let datagram = match listener_conn.receive_datagram().await {
-					Ok(datagram) => datagram,
-					Err(_) => break, // connection closed
+				let (send, mut recv) = match listener_conn.accept_bi().await {
+					Ok(stream) => stream,
+					Err(_) => break,
 				};
-				if let Err(e) = Utility::request_handle(id, datagram.payload().to_vec()).await {
-					println!("could not handle request from {}: {:?}", id, e);
-				}
+				tokio::spawn(async move {
+					let mut len = [0u8; 1];
+					if recv.read_exact(&mut len).await.is_err() {
+						return;
+					}
+					let mut payload = vec![0u8; len[0] as usize];
+					if recv.read_exact(&mut payload).await.is_err() {
+						return;
+					}
+					if let Err(e) = Utility::request_handle(id, payload, send).await {
+						println!("could not handle request from {}: {:?}", id, e);
+					}
+				});
 			}
 		});
 		let connection_handle = tokio::spawn(async move {
