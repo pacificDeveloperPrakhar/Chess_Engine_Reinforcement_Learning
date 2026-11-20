@@ -1,12 +1,12 @@
-use crate::structures::state::Node_Min_Max;
+use crate::structures::game_session::GameSession;
+use crate::structures::state::{apply_move, Node_Min_Max};
 
-const MATE: f64 = 1.0e9;
+pub const MATE: f64 = 1.0e9;
 
 // role: 1 = side to move is maximizing (white), -1 = minimizing (black).
 // evaluate() is positive when white is better.
-pub fn min_max(mut alpha: f64, mut beta: f64, role: i8, curr: &mut Node_Min_Max, depth: usize) -> f64
+pub fn min_max(mut alpha: f64, mut beta: f64, role: i8, session: &mut GameSession, curr: &mut Node_Min_Max, depth: usize) -> f64
 {
-	let mut is_king_checked=false;
 	if depth == 0
 	{
 		return curr.evaluate();
@@ -14,16 +14,14 @@ pub fn min_max(mut alpha: f64, mut beta: f64, role: i8, curr: &mut Node_Min_Max,
 
 	if !curr.expanded
 	{
-		curr.is_king_checked=curr.calculate_children();
+		curr.calculate_children(session);
 	}
-
-
 
 	if curr.children.is_empty()
 	{
 		if !curr.is_king_checked
 		{
-			return 0_f64;
+			return 0.0;
 		}
 		let d = depth as f64;
 		return if role == 1 { -(MATE + d) } else { MATE + d };
@@ -34,7 +32,12 @@ pub fn min_max(mut alpha: f64, mut beta: f64, role: i8, curr: &mut Node_Min_Max,
 
 	for i in 0..curr.children.len()
 	{
-		let v = min_max(alpha, beta, -role, &mut curr.children[i], depth - 1);
+		let child = &mut curr.children[i];
+
+		let saved = session.clone();
+		apply_move(session, child.mv.expect("child without a move"));
+		let v = min_max(alpha, beta, -role, session, child, depth - 1);
+		*session = saved;
 
 		if role == 1
 		{

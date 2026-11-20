@@ -2,6 +2,8 @@
 
 use crate::structures::annotations::Piece;
 use crate::generator::{generate_moves_for_king, is_king_checked, possible_moves};
+use crate::evaluator::MIN_MAX::min_max;
+use crate::structures::state::Node_Min_Max;
 
 const FILE_A: u64 = 0x0101_0101_0101_0101;
 const FILE_H: u64 = 0x8080_8080_8080_8080;
@@ -39,7 +41,7 @@ pub enum GameStatus {
     Stalemate,
     DrawFiftyMove,
 }
-
+#[derive(Clone)]
 pub struct GameSession {
     pub id: u64,
     pub bitboards: Boards,
@@ -61,6 +63,7 @@ pub struct GamePlay {
     pub side_to_move: u8,
     pub status: GameStatus,
 }
+
 
 fn in_check(bb: Boards, side: usize) -> bool {
     if bb[side][K] == 0 {
@@ -344,4 +347,19 @@ impl GameSession {
             }
         }
     }
+
+
+    pub fn evaluate(&self, depth: usize) -> Node_Min_Max
+    {
+        let mut session = self.clone();
+        session.deselect();
+
+        let mut root = Node_Min_Max::new_state_for(session.bitboards, session.side_to_move);
+        let role = if session.side_to_move == 0 { 1 } else { -1 };
+
+        root.value = min_max(f64::NEG_INFINITY, f64::INFINITY, role, &mut session, &mut root, depth);
+        root
+    }
+
+    
 }

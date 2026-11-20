@@ -1,17 +1,18 @@
 // tests/min_max_evaluation.rs
 //
 // Tests for the alpha-beta min_max search (src/evaluator/MIN_MAX.rs)
-// operating on Node_Min_Max trees (src/structures/state.rs).
+// operating on Node_Min_Max trees (src/structures/state.rs), driven by a
+// GameSession that is made / reverted move by move.
 #[cfg(test)]
 mod tests {
-    use chess_engine::evaluator::MIN_MAX::min_max;
+    use chess_engine::evaluator::MIN_MAX::{min_max, MATE};
     use chess_engine::parser::fen_to_bitboards;
     use chess_engine::structures::annotations::{Piece, PieceColor};
-    use chess_engine::structures::state::Node_Min_Max;
+    use chess_engine::structures::game_session::GameSession;
+    use chess_engine::structures::state::{apply_move, Node_Min_Max};
 
     type Boards = [[u64; 7]; 2];
 
-    const MATE: f64 = 1.0e9;
     const START: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 
     // White rook on d1 can take an undefended black queen on d5.
@@ -39,10 +40,11 @@ mod tests {
         1u64 << (rank * 8 + file)
     }
 
-    /// Build a root node from a FEN string (side to move taken from the FEN).
-    fn root_from_fen(fen: &str) -> Node_Min_Max {
+    /// Session + matching root node for a FEN string.
+    fn position(fen: &str) -> (GameSession, Node_Min_Max) {
         let session = fen_to_bitboards(fen).expect("invalid FEN");
-        Node_Min_Max::new_state_for(session.bitboards, session.side_to_move)
+        let root = Node_Min_Max::new_state_for(session.bitboards, session.side_to_move);
+        (session, root)
     }
 
     /// role for min_max: 1 = white maximizes, -1 = black minimizes.
@@ -50,10 +52,17 @@ mod tests {
         if node.side_to_move() == 0 { 1 } else { -1 }
     }
 
-    /// Run a full-window search from `root` to `depth`, returning the score.
-    fn search(root: &mut Node_Min_Max, depth: usize) -> f64 {
+    /// Full-window search from `root` to `depth`, returning the score.
+    fn search(session: &mut GameSession, root: &mut Node_Min_Max, depth: usize) -> f64 {
         let role = role_for(root);
-        min_max(f64::NEG_INFINITY, f64::INFINITY, role, root, depth)
+        min_max(f64::NEG_INFINITY, f64::INFINITY, role, session, root, depth)
+    }
+
+    /// Searches a FEN position; returns (score, root).
+    fn search_fen(fen: &str, depth: usize) -> (f64, Node_Min_Max) {
+        let (mut session, mut root) = position(fen);
+        let v = search(&mut session, &mut root, depth);
+        (v, root)
     }
 
     /// Square the side `color` moved a piece to, going from `before` to `after`.
@@ -66,35 +75,41 @@ mod tests {
     fn best_destination(root: &Node_Min_Max) -> u64 {
         let best = root.best_child().expect("min_max chose no move");
         let mover = if root.side_to_move() == 0 { PieceColor::W } else { PieceColor::B };
-        moved_to(&root.bitboards, &best.bitboards, mover)
+        let to = moved_to(&root.bitboards, &best.bitboards, mover);
+        assert_eq!(best.mv.map(|m| m.to), Some(to), "child.mv must match its board");
+        to
     }
 
     fn is_mate_score(v: f64) -> bool {
         v.abs() >= MATE
     }
 
-    /// Plain minimax with no pruning, using the same leaf / mate rules as min_max.
-    /// Used as a reference to check that alpha-beta never changes the result.
-    fn plain_minimax(node: &mut Node_Min_Max, depth: usize, role: i8) -> f64 {
+    /// Plain minimax with no pruning, using the same leaf / mate / stalemate
+    /// rules as min_max. Reference for checking that alpha-beta never changes
+    /// the result.
+    fn plain_minimax(session: &mut GameSession, node: &mut Node_Min_Max, depth: usize, role: i8) -> f64 {
         if depth == 0 {
             return node.evaluate();
         }
         if !node.expanded {
-            node.calculate_children();
+            node.calculate_children(session);
         }
         if node.children.is_empty() {
+            if !node.is_king_checked {
+                return 0.0;
+            }
             let d = depth as f64;
             return if role == 1 { -(MATE + d) } else { MATE + d };
         }
-        let scores = node
-            .children
-            .iter_mut()
-            .map(|c| plain_minimax(c, depth - 1, -role));
-        if role == 1 {
-            scores.fold(f64::NEG_INFINITY, f64::max)
-        } else {
-            scores.fold(f64::INFINITY, f64::min)
+        let mut best = if role == 1 { f64::NEG_INFINITY } else { f64::INFINITY };
+        for child in node.children.iter_mut() {
+            let saved = session.clone();
+            apply_move(session, child.mv.unwrap());
+            let v = plain_minimax(session, child, depth - 1, -role);
+            *session = saved;
+            best = if role == 1 { best.max(v) } else { best.min(v) };
         }
+        best
     }
 
     // ------------------------------------------------------------------
@@ -103,9 +118,9 @@ mod tests {
 
     #[test]
     fn depth_zero_returns_static_eval() {
-        let mut root = root_from_fen(START);
+        let (mut session, mut root) = position(START);
         let expected = root.evaluate();
-        let v = search(&mut root, 0);
+        let v = search(&mut session, &mut root, 0);
         assert_eq!(v, expected);
         assert!(!root.expanded, "depth 0 must not expand the node");
         assert!(root.best_child().is_none());
@@ -113,8 +128,7 @@ mod tests {
 
     #[test]
     fn depth_one_picks_a_best_child() {
-        let mut root = root_from_fen(START);
-        let v = search(&mut root, 1);
+        let (v, root) = search_fen(START, 1);
         assert!(root.expanded);
         assert_eq!(root.children.len(), 20, "start position has 20 legal moves");
         assert!(root.best_child().is_some());
@@ -124,28 +138,86 @@ mod tests {
     #[test]
     fn start_position_is_roughly_equal() {
         for depth in 1..=3 {
-            let mut root = root_from_fen(START);
-            let v = search(&mut root, depth);
+            let (v, _) = search_fen(START, depth);
             assert!(v.abs() < 100.0, "depth {depth}: start position scored {v}");
         }
     }
 
     #[test]
-    fn search_does_not_change_root_board() {
-        let mut root = root_from_fen(START);
-        let before = root.bitboards;
-        search(&mut root, 3);
-        assert_eq!(root.bitboards, before);
+    fn search_reverts_the_session() {
+        let (mut session, mut root) = position(START);
+        let before = session.clone();
+        search(&mut session, &mut root, 3);
+        assert_eq!(session.bitboards, before.bitboards);
+        assert_eq!(session.side_to_move, before.side_to_move);
+        assert_eq!(session.castling, before.castling);
+        assert_eq!(session.ep_target, before.ep_target);
+        assert_eq!(session.halfmove, before.halfmove);
+        assert_eq!(session.fullmove, before.fullmove);
+        assert_eq!(root.bitboards, before.bitboards);
+    }
+
+    #[test]
+    fn game_session_evaluate_does_not_touch_the_game() {
+        let (session, _) = position(START);
+        let root = session.evaluate(2);
+        assert!(root.best_child().is_some());
+        assert_eq!(session.bitboards, fen_to_bitboards(START).unwrap().bitboards);
+    }
+
+    #[test]
+    fn game_session_evaluate_matches_min_max() {
+        let (session, _) = position(WHITE_WINS_QUEEN);
+        let root = session.evaluate(2);
+        let (v, direct) = search_fen(WHITE_WINS_QUEEN, 2);
+        assert_eq!(root.value, v);
+        assert_eq!(best_destination(&root), best_destination(&direct));
     }
 
     #[test]
     fn searching_an_expanded_tree_again_gives_same_result() {
-        let mut root = root_from_fen(WHITE_WINS_QUEEN);
-        let first = search(&mut root, 3);
+        let (mut session, mut root) = position(WHITE_WINS_QUEEN);
+        let first = search(&mut session, &mut root, 3);
         let first_move = best_destination(&root);
-        let second = search(&mut root, 3);
+        let second = search(&mut session, &mut root, 3);
         assert_eq!(first, second);
         assert_eq!(best_destination(&root), first_move);
+    }
+
+    // ------------------------------------------------------------------
+    // Move generation through the session (castling / promotion)
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn castling_is_generated() {
+        let (mut session, mut root) = position("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
+        root.calculate_children(&mut session);
+        let king_dests: Vec<u64> = root
+            .children
+            .iter()
+            .filter_map(|c| c.mv)
+            .filter(|m| m.from == sq("e1"))
+            .map(|m| m.to)
+            .collect();
+        assert!(king_dests.contains(&sq("g1")), "O-O missing");
+        assert!(king_dests.contains(&sq("c1")), "O-O-O missing");
+    }
+
+    #[test]
+    fn promotion_generates_all_four_pieces() {
+        let (mut session, mut root) = position("4k3/P7/8/8/8/8/8/4K3 w - - 0 1");
+        root.calculate_children(&mut session);
+        let promos: Vec<Piece> = root
+            .children
+            .iter()
+            .filter_map(|c| c.mv)
+            .filter(|m| m.from == sq("a7"))
+            .map(|m| m.promo)
+            .collect();
+        assert_eq!(promos.len(), 4);
+        for p in [Piece::Q, Piece::R, Piece::B, Piece::N] {
+            assert!(promos.contains(&p), "missing promotion to {p:?}");
+        }
     }
 
     // ------------------------------------------------------------------
@@ -155,8 +227,7 @@ mod tests {
     #[test]
     fn white_captures_hanging_queen() {
         for depth in 1..=3 {
-            let mut root = root_from_fen(WHITE_WINS_QUEEN);
-            let v = search(&mut root, depth);
+            let (v, root) = search_fen(WHITE_WINS_QUEEN, depth);
             assert_eq!(best_destination(&root), sq("d5"), "depth {depth}");
             assert!(v > 0.0, "depth {depth}: white should be winning, got {v}");
         }
@@ -165,8 +236,7 @@ mod tests {
     #[test]
     fn black_captures_hanging_queen() {
         for depth in 1..=3 {
-            let mut root = root_from_fen(BLACK_WINS_QUEEN);
-            let v = search(&mut root, depth);
+            let (v, root) = search_fen(BLACK_WINS_QUEEN, depth);
             assert_eq!(best_destination(&root), sq("d4"), "depth {depth}");
             assert!(v < 0.0, "depth {depth}: black should be winning, got {v}");
         }
@@ -175,16 +245,15 @@ mod tests {
     #[test]
     fn mirrored_positions_get_opposite_scores() {
         for depth in 1..=3 {
-            let w = search(&mut root_from_fen(WHITE_WINS_QUEEN), depth);
-            let b = search(&mut root_from_fen(BLACK_WINS_QUEEN), depth);
+            let (w, _) = search_fen(WHITE_WINS_QUEEN, depth);
+            let (b, _) = search_fen(BLACK_WINS_QUEEN, depth);
             assert_eq!(w, -b, "depth {depth}");
         }
     }
 
     #[test]
     fn finds_mate_in_one() {
-        let mut root = root_from_fen(MATE_IN_ONE);
-        let v = search(&mut root, 2);
+        let (v, root) = search_fen(MATE_IN_ONE, 2);
         assert!(is_mate_score(v) && v > 0.0, "expected white mate score, got {v}");
         assert_eq!(best_destination(&root), sq("a8"));
     }
@@ -192,15 +261,13 @@ mod tests {
     #[test]
     fn greedy_depth_one_takes_poisoned_pawn() {
         // At depth 1 the engine cannot see the recapture, so it grabs the pawn.
-        let mut root = root_from_fen(POISONED_PAWN);
-        search(&mut root, 1);
+        let (_, root) = search_fen(POISONED_PAWN, 1);
         assert_eq!(best_destination(&root), sq("d5"));
     }
 
     #[test]
     fn avoids_losing_piece_at_depth_two() {
-        let mut root = root_from_fen(POISONED_PAWN);
-        let v = search(&mut root, 2);
+        let (v, root) = search_fen(POISONED_PAWN, 2);
         assert_ne!(best_destination(&root), sq("d5"), "Qxd5 loses the queen to exd5");
         assert!(v > 0.0, "white is still a queen up, got {v}");
     }
@@ -212,9 +279,9 @@ mod tests {
     #[test]
     fn checkmated_side_gets_mate_score() {
         for depth in 1..=3 {
-            let mut root = root_from_fen(BLACK_IS_MATED);
-            let v = search(&mut root, depth);
+            let (v, root) = search_fen(BLACK_IS_MATED, depth);
             assert!(root.children.is_empty(), "black should have no legal moves");
+            assert!(root.is_king_checked);
             assert!(root.best_child().is_none());
             // Black to move and mated -> good for white, offset by remaining depth.
             assert_eq!(v, MATE + depth as f64, "depth {depth}");
@@ -222,12 +289,13 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "min_max scores every no-legal-moves position as mate; stalemate detection is not implemented"]
-    fn stalemate_is_not_scored_as_mate() {
-        let mut root = root_from_fen(STALEMATE);
-        let v = search(&mut root, 1);
-        assert!(root.children.is_empty(), "black should have no legal moves");
-        assert!(!is_mate_score(v), "stalemate must not be scored as mate, got {v}");
+    fn stalemate_is_scored_as_draw() {
+        for depth in 1..=3 {
+            let (v, root) = search_fen(STALEMATE, depth);
+            assert!(root.children.is_empty(), "black should have no legal moves");
+            assert!(!root.is_king_checked);
+            assert_eq!(v, 0.0, "depth {depth}: stalemate must score 0, got {v}");
+        }
     }
 
     // ------------------------------------------------------------------
@@ -239,11 +307,10 @@ mod tests {
         let positions = [START, WHITE_WINS_QUEEN, BLACK_WINS_QUEEN, MATE_IN_ONE, POISONED_PAWN];
         for fen in positions {
             for depth in 1..=3 {
-                let mut a = root_from_fen(fen);
-                let mut b = root_from_fen(fen);
-                let role = role_for(&a);
-                let pruned = search(&mut a, depth);
-                let full = plain_minimax(&mut b, depth, role);
+                let (pruned, _) = search_fen(fen, depth);
+                let (mut session, mut root) = position(fen);
+                let role = role_for(&root);
+                let full = plain_minimax(&mut session, &mut root, depth, role);
                 assert_eq!(pruned, full, "{fen} at depth {depth}");
             }
         }

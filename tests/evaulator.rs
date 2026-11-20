@@ -5,6 +5,7 @@
 mod tests {
     use chess_engine::structures::annotations::{Piece, PieceColor};
 	use chess_engine::structures::state::*;
+	use chess_engine::structures::game_session::GameSession;
 
     type Boards = [[u64; 7]; 2];
 
@@ -34,6 +35,15 @@ mod tests {
         bb
     }
 
+    /// GameSession in the same position as `node` (no castling, no en passant).
+    fn session_for(node: &Node_Min_Max) -> GameSession {
+        let mut s = GameSession::new();
+        s.bitboards = node.bitboards;
+        s.side_to_move = node.side_to_move() as u8;
+        s.castling = "-".to_string();
+        s
+    }
+
     // ---------------------------------------------------------------------
     // Bug 2: moving a piece must update its own side's aggregate `A` board
     // ---------------------------------------------------------------------
@@ -48,7 +58,7 @@ mod tests {
 
         let mut node = Node_Min_Max::new_state(bb);
         node.role = 1; // so player = 1 - 1 = 0 = White to move
-        node.calculate_children();
+        node.calculate_children(&mut session_for(&node));
 
         // find a child where the knight moved from b1 to c3
         let target = sq("c3");
@@ -87,7 +97,7 @@ mod tests {
 
         let mut node = Node_Min_Max::new_state(bb);
         node.role = 1; // player = 0 = White
-        node.calculate_children();
+        node.calculate_children(&mut session_for(&node));
 
         // king e1 with nothing nearby: d1,d2,e2,f1,f2 = 5 moves
         // knight b1: a3,c3,d2 = 3 moves
@@ -119,7 +129,7 @@ mod tests {
 
         let mut node = Node_Min_Max::new_state(bb);
         node.role = 1; // player = 0 = White
-        node.calculate_children();
+        node.calculate_children(&mut session_for(&node));
 
         // none of the resulting child boards should have the white king anywhere on the d-file
         for child in &node.children {
@@ -151,7 +161,7 @@ mod tests {
 
         let mut node = Node_Min_Max::new_state(bb);
         node.role = 1; // player = 0 = White
-        node.calculate_children();
+        node.calculate_children(&mut session_for(&node));
 
         let target = sq("a4");
         let child = node
@@ -176,7 +186,7 @@ mod tests {
 
         let mut node = Node_Min_Max::new_state(bb);
         node.role = 1; // player = 0
-        node.calculate_children();
+        node.calculate_children(&mut session_for(&node));
 
         assert!(!node.children.is_empty());
         for child in &node.children {

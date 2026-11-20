@@ -1,37 +1,33 @@
 use crate::evaluator::evaluate_score;
-use crate::generator::{generating_moves_with_king_safety, generate_moves_for_king};
-use crate::structures::annotations::Piece;
 use crate::generator::is_king_checked;
+use crate::structures::annotations::Piece;
+use crate::structures::game_session::{GameSession, GameStatus};
+
+const PROMOTIONS: [Piece; 4] = [Piece::Q, Piece::R, Piece::B, Piece::N];
+const PROMOTION_RANKS: u64 = 0xFF00_0000_0000_00FF;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Move
+{
+	pub from: u64,
+	pub to: u64,
+	pub promo: Piece,
+}
 
 pub struct Node_Min_Max
 {
 	pub bitboards: [[u64; 7]; 2],
 	pub children: Vec<Node_Min_Max>,
 	pub value: f64,
-	pub role: u8,        // side that just moved; side to move is 1 - role
-	pub expanded: bool,  // true once calculate_children has run (even if it found no moves)
+	pub role: u8,                      // side that just moved; side to move is 1 - role
+	pub expanded: bool,                // true once calculate_children has run (even if it found no moves)
 	pub next_best_move: Option<usize>, // index into self.children, no borrow needed
-	pub is_king_checked:bool	
+	pub is_king_checked: bool,
+	pub mv: Option<Move>,
 }
 
 impl Node_Min_Max
 {
-	pub fn expand(&mut self, depth: usize)
-	{
-		if depth == 0
-		{
-			return;
-		}
-		if !self.expanded
-		{
-			self.calculate_children();
-		}
-		for child in self.children.iter_mut()
-		{
-			child.expand(depth - 1);
-		}
-	}
-
 	// White to move
 	pub fn new_state(bitboards: [[u64; 7]; 2]) -> Self
 	{
@@ -49,7 +45,8 @@ impl Node_Min_Max
 			role: 1 - side_to_move,
 			expanded: false,
 			next_best_move: None,
-			is_king_checked:false
+			is_king_checked: false,
+			mv: None,
 		}
 	}
 
@@ -69,56 +66,80 @@ impl Node_Min_Max
 		self.next_best_move.map(|i| &self.children[i])
 	}
 
-	pub fn calculate_children(&mut self)->bool
+	pub fn expand(&mut self, session: &mut GameSession, depth: usize)
+	{
+		if depth == 0
+		{
+			return;
+		}
+		if !self.expanded
+		{
+			self.calculate_children(session);
+		}
+		for child in self.children.iter_mut()
+		{
+			let saved = session.clone();
+			apply_move(session, child.mv.expect("child without a move"));
+			child.expand(session, depth - 1);
+			*session = saved;
+		}
+	}
+
+	pub fn calculate_children(&mut self, session: &mut GameSession) -> bool
 	{
 		self.children = Vec::new();
 		self.expanded = true;
 		self.next_best_move = None;
 
-		let player = self.side_to_move(); // FIX: was self.role (the side that just moved)
-		let enemy = 1 - player;
+		let player = self.side_to_move();
+		self.is_king_checked = self.bitboards[player][Piece::K as usize] != 0
+			&& is_king_checked(self.bitboards, if player == 0 { 'w' } else { 'b' }).0 != 0;
 
-		for i in 0..6 // exclude Piece::A (index 6), the aggregate occupancy board
+		if matches!(
+			session.status,
+			GameStatus::Checkmate | GameStatus::Stalemate | GameStatus::DrawFiftyMove
+		)
 		{
-			let mut bitboard = self.bitboards[player][i];
-			while bitboard != 0
+			return self.is_king_checked;
+		}
+
+		let mut pieces = self.bitboards[player][Piece::A as usize];
+		while pieces != 0
+		{
+			let from = pieces & pieces.wrapping_neg();
+			pieces &= pieces - 1;
+
+			let is_pawn = self.bitboards[player][Piece::P as usize] & from != 0;
+			let mut moves = session.legal_moves(from);
+
+			while moves != 0
 			{
-				let piece_index = bitboard.trailing_zeros();
-				bitboard &= bitboard - 1;
-				let from: u64 = 1u64 << piece_index;
+				let to = moves & moves.wrapping_neg();
+				moves &= moves - 1;
 
-				let mut m = if i == Piece::K as usize {
-					generate_moves_for_king(self.bitboards, from)
-				} else {
-					generating_moves_with_king_safety(self.bitboards, from)
-				};
+				let promos: &[Piece] = if is_pawn && to & PROMOTION_RANKS != 0 { &PROMOTIONS } else { &PROMOTIONS[..1] };
 
-				while m != 0
+				for &promo in promos
 				{
-					let next_move: u64 = 1u64 << m.trailing_zeros();
-					m &= m - 1;
+					let mv = Move { from, to, promo };
+					let saved = session.clone();
 
-					let mut new_bitboards = self.bitboards;
+					apply_move(session, mv);
+					let mut child = Self::new_state_for(session.bitboards, session.side_to_move);
+					child.mv = Some(mv);
+					self.children.push(child);
 
-					new_bitboards[player][i] &= !from;
-					new_bitboards[player][i] |= next_move;
-
-					new_bitboards[player][Piece::A as usize] &= !from;
-					new_bitboards[player][Piece::A as usize] |= next_move;
-
-					for j in 0..7
-					{
-						new_bitboards[enemy][j] &= !next_move;
-					}
-
-					// the child's side to move is the enemy
-					self.children.push(Self::new_state_for(new_bitboards, enemy as u8));
+					*session = saved;
 				}
 			}
 		}
-		let role=  if player ==0{'W'} else{ 'B'} ;
-		let (is_king_checked,_)=is_king_checked(self.bitboards.clone(),role);
-		return is_king_checked!=0 ;
 
+		self.is_king_checked
 	}
+}
+
+pub fn apply_move(session: &mut GameSession, mv: Move)
+{
+	session.play_with_promotion(mv.from, mv.promo);
+	session.play_with_promotion(mv.to, mv.promo);
 }
