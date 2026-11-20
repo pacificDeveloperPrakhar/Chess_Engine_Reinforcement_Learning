@@ -1,6 +1,7 @@
 use crate::evaluator::evaluate_score;
 use crate::generator::{generating_moves_with_king_safety, generate_moves_for_king};
 use crate::structures::annotations::Piece;
+use crate::generator::is_king_checked;
 
 pub struct Node_Min_Max
 {
@@ -10,6 +11,7 @@ pub struct Node_Min_Max
 	pub role: u8,        // side that just moved; side to move is 1 - role
 	pub expanded: bool,  // true once calculate_children has run (even if it found no moves)
 	pub next_best_move: Option<usize>, // index into self.children, no borrow needed
+	pub is_king_checked:bool	
 }
 
 impl Node_Min_Max
@@ -47,6 +49,7 @@ impl Node_Min_Max
 			role: 1 - side_to_move,
 			expanded: false,
 			next_best_move: None,
+			is_king_checked:false
 		}
 	}
 
@@ -66,7 +69,7 @@ impl Node_Min_Max
 		self.next_best_move.map(|i| &self.children[i])
 	}
 
-	pub fn calculate_children(&mut self)
+	pub fn calculate_children(&mut self)->bool
 	{
 		self.children = Vec::new();
 		self.expanded = true;
@@ -113,5 +116,9 @@ impl Node_Min_Max
 				}
 			}
 		}
+		let role=  if player ==0{'W'} else{ 'B'} ;
+		let (is_king_checked,_)=is_king_checked(self.bitboards.clone(),role);
+		return is_king_checked!=0 ;
+
 	}
 }

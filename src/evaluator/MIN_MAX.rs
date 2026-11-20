@@ -6,6 +6,7 @@ const MATE: f64 = 1.0e9;
 // evaluate() is positive when white is better.
 pub fn min_max(mut alpha: f64, mut beta: f64, role: i8, curr: &mut Node_Min_Max, depth: usize) -> f64
 {
+	let mut is_king_checked=false;
 	if depth == 0
 	{
 		return curr.evaluate();
@@ -13,12 +14,17 @@ pub fn min_max(mut alpha: f64, mut beta: f64, role: i8, curr: &mut Node_Min_Max,
 
 	if !curr.expanded
 	{
-		curr.calculate_children();
+		curr.is_king_checked=curr.calculate_children();
 	}
+
+
 
 	if curr.children.is_empty()
 	{
-		// NOTE: this treats "no legal moves" as checkmate. See the stalemate note below.
+		if !curr.is_king_checked
+		{
+			return 0_f64;
+		}
 		let d = depth as f64;
 		return if role == 1 { -(MATE + d) } else { MATE + d };
 	}
@@ -54,7 +60,6 @@ pub fn min_max(mut alpha: f64, mut beta: f64, role: i8, curr: &mut Node_Min_Max,
 			break;
 		}
 	}
-
 	curr.value = best;
 	best
 }
