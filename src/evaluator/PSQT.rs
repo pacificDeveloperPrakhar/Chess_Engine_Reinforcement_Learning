@@ -159,4 +159,4 @@ pub static PSQT: [[[i16; 64]; 2]; 6] = [
     ],
 ];
 
-pub static PIECE_VALUES: [i16; 6] = [1, 5, 6, 4, 255, 16];
+pub static PIECE_VALUES: [i16; 6] = [100, 320, 330, 500, 20000, 900];

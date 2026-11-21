@@ -47,7 +47,7 @@ fn main() {
 pub fn main()
 {
     let fen="r1bqkbnr/pppp2pp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-    let (score,fen) = interface::min_max_eval(fen,2);
+    let (score,fen) = interface::min_max_eval(fen,4);
     println!("{fen} -> best move {score}, score {score}");
     let moves = interface::get_fen_moved(4,256);
     println!("{moves}");
