@@ -1,0 +1,39 @@
+# compile with the USE_CLI flag to enable the feature
+RUSTFLAGS="--cfg USE_CLI" cargo build --release
+
+
+# Lichess only (online)
+./target/release/chess_engine --path_csv data/fen_positions.csv --lichess
+
+# Stockfish only (local)
+./target/release/chess_engine --path_csv data/fen_positions.csv --stockfish
+
+# Lichess first, Stockfish when Lichess has no answer
+./target/release/chess_engine --path_csv data/fen_positions.csv --lichess --stockfish
+
+# your engine only
+./target/release/chess_engine --path_csv data/fen_positions.csv --engine_eval
+
+# everything
+./target/release/chess_engine --path_csv data/fen_positions.csv --lichess --stockfish --engine_eval
+
+# evaluate a single FEN with your engine
+./target/release/chess_engine --eval_fen "r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5" --depth 3
+
+# evaluate a single FEN with local Stockfish
+(printf 'position fen r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5\ngo depth 18\n'; sleep 15) | stockfish | grep -E "^bestmove|^info depth 18 "
+
+# evaluate a single FEN with Lichess directly (online, can get 429)
+curl -sG https://lichess.org/api/cloud-eval --data-urlencode "fen=r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5"
+
+# check if Lichess is rate limiting you (429 = wait a minute, 200 = ok)
+curl -s -o /dev/null -w "%{http_code}\n" -G https://lichess.org/api/cloud-eval --data-urlencode "fen=r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5"
+
+#install python engine
+pip install python-chess
+
+# to play the chess game
+cd ~/Desktop/Chess_Engine_Reinforcement_Learning
+python3 -m venv .venv
+source .venv/bin/activate
+python3 play_vs_engine.py
