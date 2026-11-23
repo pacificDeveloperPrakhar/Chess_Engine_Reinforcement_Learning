@@ -6,6 +6,9 @@ use std::collections::HashMap;
 use crate::evaluator::MIN_MAX::{min_max, min_max_enhanced};
 use crate::structures::state::{TTEntry, Zobrist_State};
 use crate::structures::state::Node_Min_Max;
+use crate::structures::state::{apply_move, Move};
+use crate::evaluator::evaluate_score;
+use crate::evaluator::MIN_MAX::MATE;
 
 const FILE_A: u64 = 0x0101_0101_0101_0101;
 const FILE_H: u64 = 0x8080_8080_8080_8080;
@@ -28,6 +31,10 @@ const Q: usize = Piece::Q as usize;
 const ALL: usize = Piece::A as usize;
 
 type Boards = [[u64; 7]; 2];
+
+// capture ordering for quiescence search
+const VICTIMS_LOW_TO_HIGH: [Piece; 5] = [Piece::P, Piece::N, Piece::B, Piece::R, Piece::Q];
+const ATTACKERS_LOW_TO_HIGH: [Piece; 6] = [Piece::P, Piece::N, Piece::B, Piece::R, Piece::Q, Piece::K];
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub enum mode {
@@ -350,6 +357,132 @@ impl GameSession {
         }
     }
 
+    pub fn all_the_captures(&self) -> Vec<Move>
+    {
+        let me = self.side_to_move as usize;
+        let enemy = 1 - me;
+        let bb = self.bitboards;
+
+        // legal moves of each of my pieces, stored by square index
+        let mut legal = [0u64; 64];
+        let mut pieces = bb[me][ALL];
+        while pieces != 0
+        {
+            let from = pieces & pieces.wrapping_neg();
+            pieces &= pieces - 1;
+            legal[from.trailing_zeros() as usize] = self.legal_moves(from);
+        }
+
+        let mut captures = Vec::new();
+        for victim in VICTIMS_LOW_TO_HIGH.iter().rev().copied() // queen first (most valuable victim)
+        {
+            let mut targets = bb[enemy][victim as usize];
+            // en passant: the pawn is taken by moving onto the empty ep square
+            if victim == Piece::P
+            {
+                targets |= self.ep_target;
+            }
+            while targets != 0
+            {
+                let to = targets & targets.wrapping_neg();
+                targets &= targets - 1;
+
+                for attacker in ATTACKERS_LOW_TO_HIGH
+                {
+                    // only a pawn landing on the ep square is a capture
+                    if to == self.ep_target && attacker != Piece::P
+                    {
+                        continue;
+                    }
+                    let mut froms = bb[me][attacker as usize];
+                    while froms != 0
+                    {
+                        let from = froms & froms.wrapping_neg();
+                        froms &= froms - 1;
+                        if legal[from.trailing_zeros() as usize] & to != 0
+                        {
+                            captures.push(Move { from, to, promo: Piece::Q });
+                        }
+                    }
+                }
+            }
+        }
+        captures
+    }
+
+    pub fn quiesence(&mut self, mut alpha: f64, mut beta: f64, map: &mut HashMap<u64, TTEntry>, key: u64) -> f64
+    {
+        // 1 = white to move (maximizing), -1 = black to move (minimizing)
+        let enemy: i8 = if self.side_to_move == 0 { 1 } else { -1 };
+
+        match self.status
+        {
+            GameStatus::Checkmate => return if enemy == 1 { -MATE } else { MATE },
+            GameStatus::Stalemate | GameStatus::DrawFiftyMove => return 0.0,
+            _ => {}
+        }
+
+        // if this position was already worked out (here or in the main search), reuse it
+        if let Some(entry) = Zobrist_State::get(map, key)
+        {
+            return entry.score;
+        }
+        // remember the starting window so that only exact scores get saved at the end
+        let (alpha_start, beta_start) = (alpha, beta);
+
+        // now stand_pat will tell us basically when the move made by enemy is bad for itself
+        // so if the board at which the score was made is bad
+        // then it will not proceed further thats what we are targetting for 
+        let stand_pat = evaluate_score(self.bitboards);
+        if enemy == 1
+        {
+            if stand_pat >= beta { return stand_pat; }
+            alpha = alpha.max(stand_pat);
+        }
+        else
+        {
+            if stand_pat <= alpha { return stand_pat; }
+            beta = beta.min(stand_pat);
+        }
+
+        let mut best = stand_pat;
+        let me = self.side_to_move as usize;
+        for mv in self.all_the_captures()
+        {
+            // zobrist key of the position after this capture (needs the board before the move)
+            let piece = self.piece_at(me, mv.from).expect("no piece on from square");
+            let child_key = Zobrist_State::get_from_updated(key, self, me, piece, mv.from, mv.to, Some(mv.promo));
+
+            let saved = self.clone();
+            apply_move(self, mv); // also flips side_to_move to the enemy
+            let v = self.quiesence(alpha, beta, map, child_key);
+            *self = saved; // revert
+
+            // same alpha beta update as min_max_enhanced
+            if enemy == 1
+            {
+                if v > best { best = v; }
+                alpha = alpha.max(best);
+            }
+            else
+            {
+                if v < best { best = v; }
+                beta = beta.min(best);
+            }
+            if beta <= alpha
+            {
+                break;
+            }
+        }
+
+        // save only exact scores, as depth 0 so the main search never reuses them as deeper results
+        // or_insert: never overwrite a deeper entry already saved by the main search
+        if best > alpha_start && best < beta_start
+        {
+            map.entry(key).or_insert(TTEntry::new(key, 0, best));
+        }
+        best
+    }
 
     pub fn evaluate(&self, depth: usize) -> Node_Min_Max
     {

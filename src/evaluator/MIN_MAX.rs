@@ -94,7 +94,8 @@ pub fn min_max_enhanced(mut alpha: f64, mut beta: f64, role: i8, session: &mut G
 	// if we have reched the depth of 0 then evaluate the value static evaluation
 	if depth == 0
 	{
-		return curr.evaluate();
+		// keep searching captures until the board is quiet
+		return session.quiesence(alpha, beta, map, key);
 	}
 	// if the fifty move is reached meaning no pawn moved or no killing was done
 	if session.status == GameStatus::DrawFiftyMove
@@ -215,7 +216,6 @@ pub fn min_max_enhanced(mut alpha: f64, mut beta: f64, role: i8, session: &mut G
 			let losing = Node_Min_Max::legal_loosing_captures(good | rest, from, piece, me, bb);
 			quiet.push((from, [good & !losing, rest & !losing, losing]));
 		}
-		// in the stage 3 i need to implement the quiesence search
 		for stage in 0..3
 		{
 			for &(from, groups) in &quiet
@@ -227,7 +227,6 @@ pub fn min_max_enhanced(mut alpha: f64, mut beta: f64, role: i8, session: &mut G
 					tos &= tos - 1;
 					legal[from.trailing_zeros() as usize] &= !to;
 					if search(from, to) { break 'search; }
-					// do the quiesence search for the loosing capture moves
 				}
 			}
 		}
