@@ -1,0 +1,10 @@
+depth,fen,my_engine_time_s,my_engine_peak_ram_mb,my_engine_score,my_engine_best_move,my_engine_status,stockfish_time_s,stockfish_ram_mb,stockfish_score,stockfish_best_move,lichess_time_s
+1,r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5,0.051,0.0,36,b1->c3,ok,0.005,155.6,482,d1e2,n/a
+2,r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5,0.051,0.2,0,b1->c3,ok,0.001,155.6,67,f1e2,n/a
+3,r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5,0.051,0.2,43,c1->e3,ok,0.001,155.6,67,f1e2,n/a
+4,r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5,0.202,3.1,0,c2->c4,ok,0.002,155.7,43,f1d3,n/a
+5,r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5,0.606,3.9,36,b1->c3,ok,0.002,155.7,51,f1e2,n/a
+6,r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5,5.949,11.5,0,b1->c3,ok,0.002,155.7,54,f1e2,n/a
+7,r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5,34.407,37.4,27,b1->c3,ok,0.003,155.7,46,f1d3,n/a
+8,r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5,246.157,141.3,0,b1->c3,ok,0.004,155.7,46,f1d3,n/a
+9,r1bqkbnr/ppp2ppp/2n5/3p4/3P4/5N2/PPP2PPP/RNBQKB1R w KQkq - 2 5,1279.785,470.9,32,b1->c3,ok,0.034,155.7,74,f1b5,n/a
